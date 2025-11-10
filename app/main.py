@@ -34,6 +34,61 @@ if sys.platform == 'win32':
 from audio_capture import AudioCaptureThread
 from transcription import TranscriptionThread
 from subtitle_storage import SubtitleStorage
+from desktop_subtitle import DesktopSubtitleWindow
+
+# ========== 语言配置 ==========
+# Whisper支持的源语言
+WHISPER_LANGUAGES = {
+    "中文": "zh",
+    "英语": "en",
+    "日语": "ja",
+    "韩语": "ko",
+    "法语": "fr",
+    "德语": "de",
+    "西班牙语": "es",
+    "俄语": "ru",
+    "意大利语": "it",
+    "葡萄牙语": "pt",
+    "荷兰语": "nl",
+    "阿拉伯语": "ar",
+    "印地语": "hi",
+    "泰语": "th",
+    "越南语": "vi"
+}
+
+# DeepL支持的目标语言
+DEEPL_LANGUAGES = {
+    "中文（简体）": "ZH",
+    "英语（美式）": "EN-US",
+    "英语（英式）": "EN-GB",
+    "日语": "JA",
+    "韩语": "KO",
+    "法语": "FR",
+    "德语": "DE",
+    "西班牙语": "ES",
+    "俄语": "RU",
+    "意大利语": "IT",
+    "葡萄牙语（巴西）": "PT-BR",
+    "葡萄牙语（葡萄牙）": "PT-PT",
+    "荷兰语": "NL",
+    "波兰语": "PL",
+    "瑞典语": "SV",
+    "丹麦语": "DA",
+    "芬兰语": "FI",
+    "希腊语": "EL",
+    "捷克语": "CS",
+    "罗马尼亚语": "RO",
+    "匈牙利语": "HU",
+    "保加利亚语": "BG",
+    "斯洛伐克语": "SK",
+    "斯洛文尼亚语": "SL",
+    "爱沙尼亚语": "ET",
+    "拉脱维亚语": "LV",
+    "立陶宛语": "LT",
+    "印尼语": "ID",
+    "土耳其语": "TR",
+    "乌克兰语": "UK"
+}
 
 
 def parse_bool_config(value, default=False):
@@ -98,6 +153,9 @@ class SubtitleApp:
         # 方案B优化: 队列监控
         self.monitor_active = False
 
+        # 桌面字幕窗口
+        self.desktop_subtitle_window = None
+
         # 创建界面
         self.create_widgets()
 
@@ -105,7 +163,50 @@ class SubtitleApp:
         """创建GUI组件"""
         # 设置窗口标题和大小
         self.root.title("实时字幕系统")
-        self.root.geometry("800x600")
+        self.root.geometry("900x700")
+
+        # === 语言选择区域 ===
+        lang_frame = ttk.LabelFrame(self.root, text="语言设置", padding="10")
+        lang_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        # 源语言选择
+        source_lang_frame = ttk.Frame(lang_frame)
+        source_lang_frame.pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(source_lang_frame, text="原语言:").pack(side=tk.LEFT, padx=5)
+        self.source_lang_var = tk.StringVar(value="中文")
+        self.source_lang_combo = ttk.Combobox(
+            source_lang_frame,
+            textvariable=self.source_lang_var,
+            values=list(WHISPER_LANGUAGES.keys()),
+            state="readonly",
+            width=15
+        )
+        self.source_lang_combo.pack(side=tk.LEFT, padx=5)
+
+        # 目标语言选择
+        target_lang_frame = ttk.Frame(lang_frame)
+        target_lang_frame.pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(target_lang_frame, text="翻译为:").pack(side=tk.LEFT, padx=5)
+        self.target_lang_var = tk.StringVar(value="英语（美式）")
+        self.target_lang_combo = ttk.Combobox(
+            target_lang_frame,
+            textvariable=self.target_lang_var,
+            values=list(DEEPL_LANGUAGES.keys()),
+            state="readonly",
+            width=15
+        )
+        self.target_lang_combo.pack(side=tk.LEFT, padx=5)
+
+        # 桌面字幕开关
+        self.desktop_subtitle_var = tk.BooleanVar(value=False)
+        self.desktop_subtitle_check = ttk.Checkbutton(
+            lang_frame,
+            text="显示桌面字幕",
+            variable=self.desktop_subtitle_var
+        )
+        self.desktop_subtitle_check.pack(side=tk.LEFT, padx=20)
 
         # === 控制按钮区域 ===
         control_frame = ttk.Frame(self.root, padding="10")
@@ -180,7 +281,7 @@ class SubtitleApp:
         self.translated_text.config(yscrollcommand=translated_scroll.set)
 
     def start_capture(self):
-        """开始捕获音频 (阶段2: 支持VAD配置)"""
+        """开始捕获音频 (阶段2: 支持VAD配置 + 语言选择)"""
         # 1. 读取API Keys
         openai_key = os.getenv('OPENAI_API_KEY')
         deepl_key = os.getenv('DEEPL_API_KEY')
@@ -192,7 +293,16 @@ class SubtitleApp:
             print("[ERROR]   DEEPL_API_KEY=your_deepl_key")
             return
 
-        # 2. P0修复: 配置验证支持多格式
+        # 2. 获取用户选择的语言
+        source_lang_name = self.source_lang_var.get()
+        target_lang_name = self.target_lang_var.get()
+        source_lang_code = WHISPER_LANGUAGES[source_lang_name]
+        target_lang_code = DEEPL_LANGUAGES[target_lang_name]
+
+        print(f"[INFO] 源语言: {source_lang_name} ({source_lang_code})")
+        print(f"[INFO] 目标语言: {target_lang_name} ({target_lang_code})")
+
+        # 3. P0修复: 配置验证支持多格式
         enable_vad_raw = os.getenv('ENABLE_VAD', 'true')
         vad_enabled = parse_bool_config(enable_vad_raw, default=True)
 
@@ -218,22 +328,34 @@ class SubtitleApp:
         self.audio_thread.daemon = True
         self.audio_thread.start()
 
-        # 6. 启动转录翻译线程 (阶段2: 传入audio_thread引用)
+        # 6. 启动转录翻译线程 (阶段2: 传入audio_thread引用 + 语言参数)
         self.transcription_thread = TranscriptionThread(
             self.audio_queue,
             self.stop_event,
             self.on_subtitle_ready,
             openai_key,
             deepl_key,
+            source_lang=source_lang_code,  # ← 传递用户选择的源语言
+            target_lang=target_lang_code,  # ← 传递用户选择的目标语言
             audio_thread=self.audio_thread  # ← 传递引用用于VAD检查
         )
         self.transcription_thread.daemon = True
         self.transcription_thread.start()
 
-        # 7. 启动队列监控任务（方案B优化）
+        # 7. 创建桌面字幕窗口（如果启用）
+        if self.desktop_subtitle_var.get():
+            if self.desktop_subtitle_window is None:
+                self.desktop_subtitle_window = DesktopSubtitleWindow(self.root)
+            self.desktop_subtitle_window.show()
+            print("[INFO] 桌面字幕窗口已启用")
+        else:
+            if self.desktop_subtitle_window:
+                self.desktop_subtitle_window.hide()
+
+        # 8. 启动队列监控任务（方案B优化）
         self.start_queue_monitor()
 
-        # 8. 更新按钮状态
+        # 9. 更新按钮状态
         self.btn_start.config(state=tk.DISABLED)
         self.btn_stop.config(state=tk.NORMAL)
 
@@ -272,12 +394,16 @@ class SubtitleApp:
         monitor_thread.start()
 
     def stop_capture(self):
-        """停止捕获 - 包含P0修复 + VAD统计"""
+        """停止捕获 - 包含P0修复 + VAD统计 + 关闭桌面字幕"""
         # 1. 设置停止信号
         self.stop_event.set()
 
         # 方案B优化: 停止队列监控
         self.monitor_active = False
+
+        # 隐藏桌面字幕窗口（但不销毁，以便下次使用）
+        if self.desktop_subtitle_window:
+            self.desktop_subtitle_window.hide()
 
         # 2. 等待音频线程停止
         if self.audio_thread:
@@ -337,6 +463,10 @@ class SubtitleApp:
         # 更新译文区域
         self.translated_text.insert(tk.END, translation + "\n")
         self.translated_text.see(tk.END)
+
+        # 更新桌面字幕窗口
+        if self.desktop_subtitle_window and self.desktop_subtitle_window.is_visible():
+            self.desktop_subtitle_window.update_subtitle(original, translation)
 
         # P0修复: 使用锁保护SubtitleStorage并发访问
         with self.storage_lock:

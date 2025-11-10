@@ -26,7 +26,8 @@ from concurrent.futures import ThreadPoolExecutor
 class TranscriptionThread(threading.Thread):
     """转录翻译线程 - 处理音频块并返回字幕 + 重试机制"""
 
-    def __init__(self, audio_queue, stop_event, callback, openai_key, deepl_key, audio_thread=None):
+    def __init__(self, audio_queue, stop_event, callback, openai_key, deepl_key,
+                 source_lang="zh", target_lang="EN-US", audio_thread=None):
         """
         参数:
             audio_queue (queue.Queue): 音频数据队列
@@ -34,6 +35,8 @@ class TranscriptionThread(threading.Thread):
             callback (callable): 回调函数 callback(original, translation)
             openai_key (str): OpenAI API Key
             deepl_key (str): DeepL API Key
+            source_lang (str): 源语言代码 (Whisper支持的语言代码)
+            target_lang (str): 目标语言代码 (DeepL支持的语言代码)
             audio_thread (AudioCaptureThread): 音频捕获线程引用 (用于VAD检查)
         """
         super().__init__(daemon=True)
@@ -41,6 +44,10 @@ class TranscriptionThread(threading.Thread):
         self.stop_event = stop_event
         self.callback = callback
         self.audio_thread = audio_thread  # 阶段2: 传入音频线程引用用于VAD检查
+
+        # 语言配置
+        self.source_lang = source_lang
+        self.target_lang = target_lang
 
         # 初始化API客户端
         self.openai_client = OpenAI(api_key=openai_key)
@@ -88,12 +95,12 @@ class TranscriptionThread(threading.Thread):
             try:
                 # 方案G修复：添加language参数，避免自动语言检测的巨大开销
                 # 诊断发现：自动检测导致30-40秒延迟（正常应为3-5秒）
-                # 明确指定中文可节省20-35秒/块
+                # 明确指定语言可节省20-35秒/块
                 # 方案T优化：使用text响应格式，比JSON格式快约2%
                 response = self.openai_client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio_file,
-                    language="zh",  # 强制指定中文，跳过100+语言的自动检测
+                    language=self.source_lang,  # 使用用户选择的源语言
                     response_format="text"  # 使用text格式，比JSON快
                 )
 
@@ -129,10 +136,10 @@ class TranscriptionThread(threading.Thread):
         """
         for attempt in range(self.max_retries):
             try:
-                # 阶段A修复: 中文视频应翻译为英文
+                # 使用用户选择的目标语言
                 result = self.deepl_translator.translate_text(
                     text,
-                    target_lang="EN-US"  # 翻译为英文（美式）
+                    target_lang=self.target_lang  # 使用用户选择的目标语言
                 )
                 return result.text
 
