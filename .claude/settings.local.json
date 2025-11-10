@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python simplify_plan.py:*)",
+      "Bash(dir /b \"c:\\Users\\zhi89\\Desktop\\ai\\sample\\subtitle\")",
+      "Bash(findstr:*)",
+      "Bash(python tests/test_subtitle_storage.py:*)",
+      "Bash(pip install:*)",
+      "Bash(if exist .env type .env)",
+      "Bash(dir)",
+      "Bash(dir /b /s *.txt 2)",
+      "Bash(NUL)",
+      "Bash(dir:*)",
+      "Bash(nul)",
+      "Bash(python:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

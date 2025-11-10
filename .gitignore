@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# 环境变量
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 日志文件（但保留目录结构）
+logs/*.log
+logs/modules/*.log
+
+# 保留目录结构
+!logs/.gitkeep
+!logs/modules/.gitkeep
+
+# 字幕导出文件
+*.srt
+*.vtt
+
+# 调试音频文件
+debug_*.wav
+
+# PyTorch缓存
+.cache/
+torch/hub/
+
+# 测试文件
+test_*.py
+temp_*.py
+nul

@@ -1,0 +1,13 @@
+# 核心依赖
+openai>=1.0.0,<2.0.0          # OpenAI Whisper API 客户端
+deepl>=1.16.0,<2.0.0          # DeepL 翻译 API 客户端
+pyaudio>=0.2.13               # 音频捕获
+python-dotenv>=1.0.0          # 环境变量管理
+
+# VAD 和音频处理（阶段2）
+torch>=2.0.0,<3.0.0           # VAD 模型运行（CPU版本）
+numpy>=1.24.0,<2.0.0          # 音频数据处理
+scipy>=1.11.0,<2.0.0          # 高质量音频重采样
+
+# 可选依赖
+# torchaudio>=2.0.0           # torch 会自动安装，通常不需要单独指定
