@@ -35,6 +35,7 @@ from audio_capture import AudioCaptureThread
 from transcription import TranscriptionThread
 from subtitle_storage import SubtitleStorage
 from desktop_subtitle import DesktopSubtitleWindow
+import time
 
 # ========== 语言配置 ==========
 # Whisper支持的源语言
@@ -156,31 +157,75 @@ class SubtitleApp:
         # 桌面字幕窗口
         self.desktop_subtitle_window = None
 
+        # 统计信息
+        self.subtitle_count = 0
+        self.start_time = None
+
         # 创建界面
         self.create_widgets()
 
     def create_widgets(self):
         """创建GUI组件"""
         # 设置窗口标题和大小
-        self.root.title("实时字幕系统")
-        self.root.geometry("900x700")
+        self.root.title("🎬 实时语音翻译字幕系统")
+        self.root.geometry("950x750")
+
+        # 设置窗口图标颜色主题
+        style = ttk.Style()
+        style.theme_use('clam')  # 使用更现代的主题
+
+        # 配置样式
+        style.configure('Title.TLabelframe', background='#f0f0f0')
+        style.configure('Title.TLabelframe.Label', font=('Microsoft YaHei', 10, 'bold'))
+
+        # === 顶部标题栏 ===
+        header_frame = tk.Frame(self.root, bg='#2c3e50', height=50)
+        header_frame.pack(fill=tk.X)
+        header_frame.pack_propagate(False)
+
+        tk.Label(
+            header_frame,
+            text="🎬 实时语音翻译字幕系统",
+            font=("Microsoft YaHei", 16, "bold"),
+            bg='#2c3e50',
+            fg='white'
+        ).pack(side=tk.LEFT, padx=20, pady=10)
+
+        # 状态指示灯
+        self.status_canvas = tk.Canvas(header_frame, width=20, height=20, bg='#2c3e50', highlightthickness=0)
+        self.status_canvas.pack(side=tk.RIGHT, padx=20)
+        self.status_indicator = self.status_canvas.create_oval(2, 2, 18, 18, fill='#95a5a6', outline='#7f8c8d')
+
+        self.status_label = tk.Label(
+            header_frame,
+            text="● 未运行",
+            font=("Microsoft YaHei", 10),
+            bg='#2c3e50',
+            fg='#ecf0f1'
+        )
+        self.status_label.pack(side=tk.RIGHT, padx=5)
 
         # === 语言选择区域 ===
-        lang_frame = ttk.LabelFrame(self.root, text="语言设置", padding="10")
-        lang_frame.pack(fill=tk.X, padx=10, pady=10)
+        lang_frame = ttk.LabelFrame(self.root, text="⚙️ 语言设置", padding="15", style='Title.TLabelframe')
+        lang_frame.pack(fill=tk.X, padx=15, pady=(15, 10))
 
         # 源语言选择
         source_lang_frame = ttk.Frame(lang_frame)
         source_lang_frame.pack(side=tk.LEFT, padx=5)
 
-        ttk.Label(source_lang_frame, text="原语言:").pack(side=tk.LEFT, padx=5)
+        ttk.Label(
+            source_lang_frame,
+            text="🎤 原语言:",
+            font=("Microsoft YaHei", 10)
+        ).pack(side=tk.LEFT, padx=5)
         self.source_lang_var = tk.StringVar(value="中文")
         self.source_lang_combo = ttk.Combobox(
             source_lang_frame,
             textvariable=self.source_lang_var,
             values=list(WHISPER_LANGUAGES.keys()),
             state="readonly",
-            width=15
+            width=15,
+            font=("Microsoft YaHei", 10)
         )
         self.source_lang_combo.pack(side=tk.LEFT, padx=5)
 
@@ -188,14 +233,19 @@ class SubtitleApp:
         target_lang_frame = ttk.Frame(lang_frame)
         target_lang_frame.pack(side=tk.LEFT, padx=5)
 
-        ttk.Label(target_lang_frame, text="翻译为:").pack(side=tk.LEFT, padx=5)
+        ttk.Label(
+            target_lang_frame,
+            text="🌍 翻译为:",
+            font=("Microsoft YaHei", 10)
+        ).pack(side=tk.LEFT, padx=5)
         self.target_lang_var = tk.StringVar(value="英语（美式）")
         self.target_lang_combo = ttk.Combobox(
             target_lang_frame,
             textvariable=self.target_lang_var,
             values=list(DEEPL_LANGUAGES.keys()),
             state="readonly",
-            width=15
+            width=15,
+            font=("Microsoft YaHei", 10)
         )
         self.target_lang_combo.pack(side=tk.LEFT, padx=5)
 
@@ -203,82 +253,164 @@ class SubtitleApp:
         self.desktop_subtitle_var = tk.BooleanVar(value=False)
         self.desktop_subtitle_check = ttk.Checkbutton(
             lang_frame,
-            text="显示桌面字幕",
-            variable=self.desktop_subtitle_var
+            text="📺 显示桌面字幕",
+            variable=self.desktop_subtitle_var,
+            style='TCheckbutton'
         )
         self.desktop_subtitle_check.pack(side=tk.LEFT, padx=20)
 
         # === 控制按钮区域 ===
-        control_frame = ttk.Frame(self.root, padding="10")
-        control_frame.pack(fill=tk.X)
+        control_frame = tk.Frame(self.root, bg='#ecf0f1')
+        control_frame.pack(fill=tk.X, padx=15, pady=10)
 
-        self.btn_start = ttk.Button(
-            control_frame,
-            text="开始捕获",
-            command=self.start_capture
+        # 按钮容器
+        button_container = tk.Frame(control_frame, bg='#ecf0f1')
+        button_container.pack(side=tk.LEFT, padx=10, pady=10)
+
+        # 创建样式化的按钮
+        self.btn_start = tk.Button(
+            button_container,
+            text="▶️  开始捕获",
+            command=self.start_capture,
+            font=("Microsoft YaHei", 11, "bold"),
+            bg='#27ae60',
+            fg='white',
+            activebackground='#229954',
+            activeforeground='white',
+            relief=tk.FLAT,
+            padx=20,
+            pady=10,
+            cursor='hand2',
+            width=12
         )
         self.btn_start.pack(side=tk.LEFT, padx=5)
 
-        self.btn_stop = ttk.Button(
-            control_frame,
-            text="停止",
+        self.btn_stop = tk.Button(
+            button_container,
+            text="⏹️  停止",
             command=self.stop_capture,
+            font=("Microsoft YaHei", 11, "bold"),
+            bg='#95a5a6',
+            fg='white',
+            activebackground='#7f8c8d',
+            activeforeground='white',
+            relief=tk.FLAT,
+            padx=20,
+            pady=10,
+            cursor='hand2',
+            width=12,
             state=tk.DISABLED
         )
         self.btn_stop.pack(side=tk.LEFT, padx=5)
 
-        self.btn_export = ttk.Button(
-            control_frame,
-            text="导出SRT",
-            command=self.export_srt
+        self.btn_export = tk.Button(
+            button_container,
+            text="💾  导出SRT",
+            command=self.export_srt,
+            font=("Microsoft YaHei", 11, "bold"),
+            bg='#3498db',
+            fg='white',
+            activebackground='#2980b9',
+            activeforeground='white',
+            relief=tk.FLAT,
+            padx=20,
+            pady=10,
+            cursor='hand2',
+            width=12
         )
         self.btn_export.pack(side=tk.LEFT, padx=5)
 
+        # 统计信息区域
+        stats_container = tk.Frame(control_frame, bg='#ecf0f1')
+        stats_container.pack(side=tk.RIGHT, padx=10, pady=10)
+
+        self.stats_label = tk.Label(
+            stats_container,
+            text="📊 字幕: 0 条 | ⏱️ 时长: 00:00:00",
+            font=("Microsoft YaHei", 10),
+            bg='#ecf0f1',
+            fg='#34495e'
+        )
+        self.stats_label.pack()
+
         # === 原文显示区域 ===
-        original_label = ttk.Label(self.root, text="原文字幕:")
-        original_label.pack(anchor=tk.W, padx=10, pady=(10, 0))
+        original_frame_container = ttk.LabelFrame(
+            self.root,
+            text="📝 原文字幕",
+            padding="10",
+            style='Title.TLabelframe'
+        )
+        original_frame_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=(5, 5))
 
-        # 原文文本框和滚动条容器
-        original_frame = ttk.Frame(self.root)
-        original_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-
+        # 原文文本框和滚动条
         self.original_text = tk.Text(
-            original_frame,
-            height=12,
+            original_frame_container,
             wrap=tk.WORD,
-            font=("Arial", 11)
+            font=("Arial", 11),
+            bg='#ffffff',
+            fg='#2c3e50',
+            insertbackground='#3498db',
+            selectbackground='#3498db',
+            selectforeground='white',
+            relief=tk.FLAT,
+            padx=10,
+            pady=10
         )
         self.original_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         original_scroll = ttk.Scrollbar(
-            original_frame,
+            original_frame_container,
             command=self.original_text.yview
         )
         original_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.original_text.config(yscrollcommand=original_scroll.set)
 
         # === 翻译显示区域 ===
-        translated_label = ttk.Label(self.root, text="翻译字幕:")
-        translated_label.pack(anchor=tk.W, padx=10, pady=(10, 0))
+        translated_frame_container = ttk.LabelFrame(
+            self.root,
+            text="🌍 翻译字幕",
+            padding="10",
+            style='Title.TLabelframe'
+        )
+        translated_frame_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=(5, 10))
 
-        # 翻译文本框和滚动条容器
-        translated_frame = ttk.Frame(self.root)
-        translated_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-
+        # 翻译文本框和滚动条
         self.translated_text = tk.Text(
-            translated_frame,
-            height=12,
+            translated_frame_container,
             wrap=tk.WORD,
-            font=("Microsoft YaHei", 11)
+            font=("Microsoft YaHei", 11),
+            bg='#ffffff',
+            fg='#2c3e50',
+            insertbackground='#3498db',
+            selectbackground='#3498db',
+            selectforeground='white',
+            relief=tk.FLAT,
+            padx=10,
+            pady=10
         )
         self.translated_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         translated_scroll = ttk.Scrollbar(
-            translated_frame,
+            translated_frame_container,
             command=self.translated_text.yview
         )
         translated_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.translated_text.config(yscrollcommand=translated_scroll.set)
+
+        # === 底部状态栏 ===
+        status_bar = tk.Frame(self.root, bg='#34495e', height=25)
+        status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        status_bar.pack_propagate(False)
+
+        self.status_bar_label = tk.Label(
+            status_bar,
+            text="💡 提示：选择语言后点击'开始捕获'，勾选'显示桌面字幕'可启用置顶字幕窗口",
+            font=("Microsoft YaHei", 9),
+            bg='#34495e',
+            fg='#ecf0f1',
+            anchor=tk.W
+        )
+        self.status_bar_label.pack(side=tk.LEFT, padx=10)
 
     def start_capture(self):
         """开始捕获音频 (阶段2: 支持VAD配置 + 语言选择)"""
@@ -356,8 +488,14 @@ class SubtitleApp:
         self.start_queue_monitor()
 
         # 9. 更新按钮状态
-        self.btn_start.config(state=tk.DISABLED)
-        self.btn_stop.config(state=tk.NORMAL)
+        self.btn_start.config(state=tk.DISABLED, bg='#95a5a6')
+        self.btn_stop.config(state=tk.NORMAL, bg='#e74c3c')
+
+        # 10. 更新状态指示和统计
+        self._update_status("running")
+        self.subtitle_count = 0
+        self.start_time = time.time()
+        self._start_stats_update()
 
         print("[INFO] 字幕捕获已启动")
 
@@ -428,8 +566,11 @@ class SubtitleApp:
             self.transcription_thread.join(timeout=10)
 
         # 4. 更新按钮状态
-        self.btn_start.config(state=tk.NORMAL)
-        self.btn_stop.config(state=tk.DISABLED)
+        self.btn_start.config(state=tk.NORMAL, bg='#27ae60')
+        self.btn_stop.config(state=tk.DISABLED, bg='#95a5a6')
+
+        # 5. 更新状态指示
+        self._update_status("stopped")
 
         print("[INFO] 字幕捕获已停止")
 
@@ -472,6 +613,9 @@ class SubtitleApp:
         with self.storage_lock:
             self.subtitle_storage.add_subtitle(original, translation)
 
+        # 更新统计信息
+        self.subtitle_count += 1
+
     def export_srt(self):
         """导出SRT字幕"""
         # 选择保存路径
@@ -485,6 +629,41 @@ class SubtitleApp:
             with self.storage_lock:
                 self.subtitle_storage.export_srt(filepath)
             print(f"[INFO] 字幕已导出到: {filepath}")
+            messagebox.showinfo("导出成功", f"字幕已成功导出到:\n{filepath}")
+
+    def _update_status(self, status):
+        """
+        更新状态指示灯
+
+        参数:
+            status (str): 状态 - "running", "stopped"
+        """
+        if status == "running":
+            self.status_canvas.itemconfig(self.status_indicator, fill='#27ae60', outline='#229954')
+            self.status_label.config(text="● 运行中")
+            self.status_bar_label.config(text="🎬 正在捕获音频并生成字幕...")
+        elif status == "stopped":
+            self.status_canvas.itemconfig(self.status_indicator, fill='#95a5a6', outline='#7f8c8d')
+            self.status_label.config(text="● 未运行")
+            self.status_bar_label.config(text="💡 提示：选择语言后点击'开始捕获'，勾选'显示桌面字幕'可启用置顶字幕窗口")
+
+    def _start_stats_update(self):
+        """启动统计信息更新"""
+        def update_stats():
+            if self.start_time:
+                elapsed = int(time.time() - self.start_time)
+                hours = elapsed // 3600
+                minutes = (elapsed % 3600) // 60
+                seconds = elapsed % 60
+                time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+                self.stats_label.config(text=f"📊 字幕: {self.subtitle_count} 条 | ⏱️ 时长: {time_str}")
+
+                # 继续更新
+                if not self.stop_event.is_set():
+                    self.root.after(1000, update_stats)
+
+        update_stats()
 
 
 def main():
