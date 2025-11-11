@@ -31,6 +31,9 @@ class DesktopSubtitleWindow:
         self.window.title("🎬 桌面字幕")
         self.window.geometry("900x250+100+500")  # 默认位置在屏幕下方，增加高度以适应更大字体
 
+        # 设置窗口最小尺寸，确保字幕不会被遮挡
+        self.window.minsize(400, 180)  # 最小宽度400px，最小高度180px
+
         # 置顶显示
         self.window.attributes('-topmost', True)
 
@@ -160,9 +163,10 @@ class DesktopSubtitleWindow:
         subtitle_frame.pack(fill=tk.BOTH, expand=True)
 
         # 配置Grid权重：翻译70%，原文30%
-        subtitle_frame.grid_rowconfigure(0, weight=7)  # 翻译占70%
+        # 添加minsize确保翻译区域始终有足够空间，不会被遮挡
+        subtitle_frame.grid_rowconfigure(0, weight=7, minsize=100)  # 翻译占70%，最小100px
         subtitle_frame.grid_rowconfigure(1, weight=0, minsize=2)  # 分隔线
-        subtitle_frame.grid_rowconfigure(2, weight=3)  # 原文占30%
+        subtitle_frame.grid_rowconfigure(2, weight=3, minsize=50)  # 原文占30%，最小50px
         subtitle_frame.grid_columnconfigure(0, weight=1)  # 宽度自适应
 
         # 翻译标签（带描边效果）- 放在上方，占70%空间
@@ -367,6 +371,19 @@ class DesktopSubtitleWindow:
             if hasattr(self, '_resize_timer'):
                 self.window.after_cancel(self._resize_timer)
             self._resize_timer = self.window.after(100, self._redraw_subtitles)
+
+            # 智能调整显示：当窗口高度小于200px时，减小原文区域权重
+            height = self.window.winfo_height()
+            if height < 200:
+                # 窗口太小时，翻译占更多空间（85%），原文缩小（15%）
+                subtitle_frame = self.translation_canvas.master
+                subtitle_frame.grid_rowconfigure(0, weight=85, minsize=100)
+                subtitle_frame.grid_rowconfigure(2, weight=15, minsize=30)
+            else:
+                # 正常大小时，恢复70/30比例
+                subtitle_frame = self.translation_canvas.master
+                subtitle_frame.grid_rowconfigure(0, weight=7, minsize=100)
+                subtitle_frame.grid_rowconfigure(2, weight=3, minsize=50)
 
     def _redraw_subtitles(self):
         """重新绘制字幕"""
