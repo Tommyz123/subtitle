@@ -56,6 +56,7 @@ class DesktopSubtitleWindow:
 
         # 是否显示原文（默认显示）
         self.show_original = True
+        self.show_original_var = None  # 右键菜单的变量，稍后在创建菜单时初始化
 
         # 淡入淡出动画相关
         self.fade_duration = 200  # 动画持续时间（毫秒）
@@ -132,10 +133,12 @@ class DesktopSubtitleWindow:
 
         # 显示选项
         self.context_menu.add_separator()
+        # 创建BooleanVar并保存到实例变量
+        self.show_original_var = tk.BooleanVar(value=self.show_original)
         self.context_menu.add_checkbutton(
             label="显示原文",
             command=self._toggle_original,
-            variable=tk.BooleanVar(value=True)
+            variable=self.show_original_var
         )
 
         # 窗口控制
@@ -365,8 +368,11 @@ class DesktopSubtitleWindow:
             original (str): 原文
             translation (str): 翻译
         """
+        print(f"[DEBUG] update_subtitle调用: show_original={self.show_original}, original='{original[:30] if original else 'None'}...'")  # 调试信息
+
         # 如果内容相同，不需要更新
         if self.current_original == original and self.current_translation == translation:
+            print("[DEBUG] 内容相同，跳过更新")
             return
 
         # 取消之前的动画定时器
@@ -412,6 +418,7 @@ class DesktopSubtitleWindow:
 
             # 绘制原文（灰色小字，次要内容）
             if self.show_original and original:
+                print(f"[DEBUG] 正在绘制原文: {original[:50]}...")  # 调试信息
                 # 先更新Canvas以获取当前宽度
                 self.original_canvas.update_idletasks()
                 canvas_width = self.original_canvas.winfo_width()
@@ -424,6 +431,8 @@ class DesktopSubtitleWindow:
                     original_font,
                     available_width
                 )
+
+                print(f"[DEBUG] 原文Canvas高度: {required_height}px")  # 调试信息
 
                 # 动态调整原文Canvas高度
                 self.original_canvas.config(height=required_height)
@@ -466,7 +475,11 @@ class DesktopSubtitleWindow:
     def _toggle_original(self):
         """切换原文显示"""
         self.show_original = not self.show_original
-        self.update_subtitle(self.current_original, self.current_translation)
+        # 同步更新BooleanVar
+        if self.show_original_var:
+            self.show_original_var.set(self.show_original)
+        # 重新渲染字幕（直接调用render，不需要淡入淡出）
+        self._render_subtitle_content(self.current_original, self.current_translation)
 
     def _bind_shortcuts(self):
         """绑定快捷键"""
