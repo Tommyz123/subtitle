@@ -166,9 +166,9 @@ class SubtitleApp:
 
     def create_widgets(self):
         """创建GUI组件"""
-        # 设置窗口标题和大小
+        # 设置窗口标题和大小（增加高度以显示两个文本框）
         self.root.title("🎬 实时语音翻译字幕系统")
-        self.root.geometry("950x750")
+        self.root.geometry("950x900")  # 增加高度从750到900
 
         # 设置窗口图标颜色主题
         style = ttk.Style()
@@ -338,7 +338,8 @@ class SubtitleApp:
             self.root,
             text="📝 原文字幕",
             padding="10",
-            style='Title.TLabelframe'
+            style='Title.TLabelframe',
+            height=250  # 设置最小高度
         )
         original_frame_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=(5, 5))
 
@@ -354,7 +355,8 @@ class SubtitleApp:
             selectforeground='white',
             relief=tk.FLAT,
             padx=10,
-            pady=10
+            pady=10,
+            height=12  # 设置行数
         )
         self.original_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -370,7 +372,8 @@ class SubtitleApp:
             self.root,
             text="🌍 翻译字幕",
             padding="10",
-            style='Title.TLabelframe'
+            style='Title.TLabelframe',
+            height=250  # 设置最小高度
         )
         translated_frame_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=(5, 10))
 
@@ -386,7 +389,8 @@ class SubtitleApp:
             selectforeground='white',
             relief=tk.FLAT,
             padx=10,
-            pady=10
+            pady=10,
+            height=12  # 设置行数
         )
         self.translated_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
