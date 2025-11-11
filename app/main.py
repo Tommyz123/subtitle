@@ -165,89 +165,135 @@ class SubtitleApp:
         self.create_widgets()
 
     def create_widgets(self):
-        """创建GUI组件"""
-        # 设置窗口标题和大小（增加高度以显示两个文本框）
+        """创建GUI组件 - 2025现代化设计"""
+        # 设置窗口标题和大小
         self.root.title("🎬 实时语音翻译字幕系统")
-        self.root.geometry("950x900")  # 增加高度从750到900
+        self.root.geometry("1000x900")
+
+        # 设置窗口背景色（Material Design浅灰）
+        self.root.configure(bg='#f5f5f5')
 
         # 设置窗口图标颜色主题
         style = ttk.Style()
-        style.theme_use('clam')  # 使用更现代的主题
+        style.theme_use('clam')
 
-        # 配置样式
-        style.configure('Title.TLabelframe', background='#f0f0f0')
-        style.configure('Title.TLabelframe.Label', font=('Microsoft YaHei', 10, 'bold'))
+        # 配置现代化样式
+        style.configure('Modern.TLabelframe',
+                       background='#ffffff',
+                       borderwidth=0)
+        style.configure('Modern.TLabelframe.Label',
+                       font=('Microsoft YaHei', 11, 'bold'),
+                       foreground='#1976d2',
+                       background='#ffffff')
 
-        # === 顶部标题栏 ===
-        header_frame = tk.Frame(self.root, bg='#2c3e50', height=50)
+        # 配置Combobox样式
+        style.configure('Modern.TCombobox',
+                       fieldbackground='#ffffff',
+                       background='#1976d2',
+                       borderwidth=1,
+                       relief='flat')
+
+        # 配置Checkbutton样式
+        style.configure('Modern.TCheckbutton',
+                       background='#ffffff',
+                       font=('Microsoft YaHei', 10))
+
+        style.map('Modern.TCheckbutton',
+                 background=[('active', '#ffffff')])
+
+        # 创建主容器（带内边距）
+        main_container = tk.Frame(self.root, bg='#f5f5f5')
+        main_container.pack(fill=tk.BOTH, expand=True)
+
+        # === 顶部标题栏（Material Design风格）===
+        header_frame = tk.Frame(main_container, bg='#1976d2', height=70)
         header_frame.pack(fill=tk.X)
         header_frame.pack_propagate(False)
+
+        # 添加阴影效果（使用渐变Frame模拟）
+        shadow = tk.Frame(main_container, bg='#e0e0e0', height=2)
+        shadow.pack(fill=tk.X)
 
         tk.Label(
             header_frame,
             text="🎬 实时语音翻译字幕系统",
-            font=("Microsoft YaHei", 16, "bold"),
-            bg='#2c3e50',
+            font=("Microsoft YaHei", 20, "bold"),
+            bg='#1976d2',
             fg='white'
-        ).pack(side=tk.LEFT, padx=20, pady=10)
+        ).pack(side=tk.LEFT, padx=30, pady=20)
 
-        # 状态指示灯
-        self.status_canvas = tk.Canvas(header_frame, width=20, height=20, bg='#2c3e50', highlightthickness=0)
-        self.status_canvas.pack(side=tk.RIGHT, padx=20)
-        self.status_indicator = self.status_canvas.create_oval(2, 2, 18, 18, fill='#95a5a6', outline='#7f8c8d')
+        # 状态指示区域
+        status_frame = tk.Frame(header_frame, bg='#1976d2')
+        status_frame.pack(side=tk.RIGHT, padx=30, pady=20)
+
+        self.status_canvas = tk.Canvas(status_frame, width=16, height=16, bg='#1976d2', highlightthickness=0)
+        self.status_canvas.pack(side=tk.LEFT, padx=(0, 10))
+        self.status_indicator = self.status_canvas.create_oval(2, 2, 14, 14, fill='#bdbdbd', outline='#757575', width=2)
 
         self.status_label = tk.Label(
-            header_frame,
-            text="● 未运行",
-            font=("Microsoft YaHei", 10),
-            bg='#2c3e50',
-            fg='#ecf0f1'
+            status_frame,
+            text="未运行",
+            font=("Microsoft YaHei", 11, "bold"),
+            bg='#1976d2',
+            fg='white'
         )
-        self.status_label.pack(side=tk.RIGHT, padx=5)
+        self.status_label.pack(side=tk.LEFT)
 
-        # === 语言选择区域 ===
-        lang_frame = ttk.LabelFrame(self.root, text="⚙️ 语言设置", padding="15", style='Title.TLabelframe')
-        lang_frame.pack(fill=tk.X, padx=15, pady=(15, 10))
+        # === 语言选择区域（卡片样式）===
+        card_container = tk.Frame(main_container, bg='#f5f5f5')
+        card_container.pack(fill=tk.X, padx=20, pady=20)
+
+        lang_card = tk.Frame(card_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
+        lang_card.pack(fill=tk.X)
+
+        lang_frame = tk.Frame(lang_card, bg='#ffffff')
+        lang_frame.pack(fill=tk.X, padx=20, pady=15)
 
         # 源语言选择
-        source_lang_frame = ttk.Frame(lang_frame)
-        source_lang_frame.pack(side=tk.LEFT, padx=5)
+        source_lang_frame = tk.Frame(lang_frame, bg='#ffffff')
+        source_lang_frame.pack(side=tk.LEFT, padx=(0, 20))
 
-        ttk.Label(
+        tk.Label(
             source_lang_frame,
             text="🎤 原语言:",
-            font=("Microsoft YaHei", 10)
-        ).pack(side=tk.LEFT, padx=5)
+            font=("Microsoft YaHei", 11),
+            bg='#ffffff',
+            fg='#424242'
+        ).pack(side=tk.LEFT, padx=(0, 8))
         self.source_lang_var = tk.StringVar(value="中文")
         self.source_lang_combo = ttk.Combobox(
             source_lang_frame,
             textvariable=self.source_lang_var,
             values=list(WHISPER_LANGUAGES.keys()),
             state="readonly",
-            width=15,
-            font=("Microsoft YaHei", 10)
+            width=14,
+            font=("Microsoft YaHei", 10),
+            style='Modern.TCombobox'
         )
-        self.source_lang_combo.pack(side=tk.LEFT, padx=5)
+        self.source_lang_combo.pack(side=tk.LEFT)
 
         # 目标语言选择
-        target_lang_frame = ttk.Frame(lang_frame)
-        target_lang_frame.pack(side=tk.LEFT, padx=5)
+        target_lang_frame = tk.Frame(lang_frame, bg='#ffffff')
+        target_lang_frame.pack(side=tk.LEFT, padx=(0, 20))
 
-        ttk.Label(
+        tk.Label(
             target_lang_frame,
             text="🌍 翻译为:",
-            font=("Microsoft YaHei", 10)
-        ).pack(side=tk.LEFT, padx=5)
+            font=("Microsoft YaHei", 11),
+            bg='#ffffff',
+            fg='#424242'
+        ).pack(side=tk.LEFT, padx=(0, 8))
         self.target_lang_var = tk.StringVar(value="英语（美式）")
         self.target_lang_combo = ttk.Combobox(
             target_lang_frame,
             textvariable=self.target_lang_var,
             values=list(DEEPL_LANGUAGES.keys()),
             state="readonly",
-            width=15,
-            font=("Microsoft YaHei", 10)
+            width=16,
+            font=("Microsoft YaHei", 10),
+            style='Modern.TCombobox'
         )
-        self.target_lang_combo.pack(side=tk.LEFT, padx=5)
+        self.target_lang_combo.pack(side=tk.LEFT)
 
         # 桌面字幕开关
         self.desktop_subtitle_var = tk.BooleanVar(value=False)
@@ -255,166 +301,203 @@ class SubtitleApp:
             lang_frame,
             text="📺 显示桌面字幕",
             variable=self.desktop_subtitle_var,
-            style='TCheckbutton'
+            style='Modern.TCheckbutton'
         )
-        self.desktop_subtitle_check.pack(side=tk.LEFT, padx=20)
+        self.desktop_subtitle_check.pack(side=tk.LEFT, padx=(20, 0))
 
-        # === 控制按钮区域 ===
-        control_frame = tk.Frame(self.root, bg='#ecf0f1')
-        control_frame.pack(fill=tk.X, padx=15, pady=10)
+        # === 控制按钮区域（卡片样式）===
+        control_card = tk.Frame(main_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
+        control_card.pack(fill=tk.X, padx=20, pady=(0, 20))
+
+        control_frame = tk.Frame(control_card, bg='#ffffff')
+        control_frame.pack(fill=tk.X, padx=20, pady=20)
 
         # 按钮容器
-        button_container = tk.Frame(control_frame, bg='#ecf0f1')
-        button_container.pack(side=tk.LEFT, padx=10, pady=10)
+        button_container = tk.Frame(control_frame, bg='#ffffff')
+        button_container.pack(side=tk.LEFT)
 
-        # 创建样式化的按钮
+        # 创建现代化圆角按钮（Material Design风格）
         self.btn_start = tk.Button(
             button_container,
-            text="▶️  开始捕获",
+            text="▶  开始捕获",
             command=self.start_capture,
             font=("Microsoft YaHei", 11, "bold"),
-            bg='#27ae60',
+            bg='#4caf50',
             fg='white',
-            activebackground='#229954',
+            activebackground='#45a049',
             activeforeground='white',
             relief=tk.FLAT,
-            padx=20,
-            pady=10,
+            padx=25,
+            pady=12,
             cursor='hand2',
-            width=12
+            borderwidth=0,
+            highlightthickness=0
         )
-        self.btn_start.pack(side=tk.LEFT, padx=5)
+        self.btn_start.pack(side=tk.LEFT, padx=(0, 12))
+        # 添加悬停效果
+        self.btn_start.bind('<Enter>', lambda e: self.btn_start.config(bg='#45a049'))
+        self.btn_start.bind('<Leave>', lambda e: self.btn_start.config(bg='#4caf50'))
 
         self.btn_stop = tk.Button(
             button_container,
-            text="⏹️  停止",
+            text="⏹  停止",
             command=self.stop_capture,
             font=("Microsoft YaHei", 11, "bold"),
-            bg='#95a5a6',
+            bg='#bdbdbd',
             fg='white',
-            activebackground='#7f8c8d',
+            activebackground='#9e9e9e',
             activeforeground='white',
             relief=tk.FLAT,
-            padx=20,
-            pady=10,
+            padx=25,
+            pady=12,
             cursor='hand2',
-            width=12,
+            borderwidth=0,
+            highlightthickness=0,
             state=tk.DISABLED
         )
-        self.btn_stop.pack(side=tk.LEFT, padx=5)
+        self.btn_stop.pack(side=tk.LEFT, padx=(0, 12))
+        self.btn_stop.bind('<Enter>', lambda e: self.btn_stop.config(bg='#9e9e9e') if self.btn_stop['state'] == tk.NORMAL else None)
+        self.btn_stop.bind('<Leave>', lambda e: self.btn_stop.config(bg='#f44336') if self.btn_stop['state'] == tk.NORMAL else None)
 
         self.btn_export = tk.Button(
             button_container,
             text="💾  导出SRT",
             command=self.export_srt,
             font=("Microsoft YaHei", 11, "bold"),
-            bg='#3498db',
+            bg='#2196f3',
             fg='white',
-            activebackground='#2980b9',
+            activebackground='#1976d2',
             activeforeground='white',
             relief=tk.FLAT,
-            padx=20,
-            pady=10,
+            padx=25,
+            pady=12,
             cursor='hand2',
-            width=12
+            borderwidth=0,
+            highlightthickness=0
         )
-        self.btn_export.pack(side=tk.LEFT, padx=5)
+        self.btn_export.pack(side=tk.LEFT)
+        self.btn_export.bind('<Enter>', lambda e: self.btn_export.config(bg='#1976d2'))
+        self.btn_export.bind('<Leave>', lambda e: self.btn_export.config(bg='#2196f3'))
 
         # 统计信息区域
-        stats_container = tk.Frame(control_frame, bg='#ecf0f1')
-        stats_container.pack(side=tk.RIGHT, padx=10, pady=10)
+        stats_container = tk.Frame(control_frame, bg='#ffffff')
+        stats_container.pack(side=tk.RIGHT)
 
         self.stats_label = tk.Label(
             stats_container,
-            text="📊 字幕: 0 条 | ⏱️ 时长: 00:00:00",
-            font=("Microsoft YaHei", 10),
-            bg='#ecf0f1',
-            fg='#34495e'
+            text="📊 字幕: 0 条  |  ⏱️ 时长: 00:00:00",
+            font=("Microsoft YaHei", 11),
+            bg='#ffffff',
+            fg='#616161'
         )
         self.stats_label.pack()
 
-        # === 原文显示区域 ===
-        original_frame_container = ttk.LabelFrame(
-            self.root,
-            text="📝 原文字幕",
-            padding="10",
-            style='Title.TLabelframe',
-            height=250  # 设置最小高度
-        )
-        original_frame_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=(5, 5))
+        # === 原文显示区域（现代卡片样式）===
+        original_card = tk.Frame(main_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
+        original_card.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 15))
 
-        # 原文文本框和滚动条
-        self.original_text = tk.Text(
-            original_frame_container,
-            wrap=tk.WORD,
-            font=("Arial", 11),
+        # 标题栏
+        original_header = tk.Frame(original_card, bg='#ffffff')
+        original_header.pack(fill=tk.X, padx=20, pady=(15, 10))
+
+        tk.Label(
+            original_header,
+            text="📝 原文字幕",
+            font=("Microsoft YaHei", 12, "bold"),
             bg='#ffffff',
-            fg='#2c3e50',
-            insertbackground='#3498db',
-            selectbackground='#3498db',
-            selectforeground='white',
+            fg='#1976d2'
+        ).pack(side=tk.LEFT)
+
+        # 文本框容器
+        original_text_container = tk.Frame(original_card, bg='#ffffff')
+        original_text_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 15))
+
+        # 原文文本框（带内边距和圆角效果）
+        self.original_text = tk.Text(
+            original_text_container,
+            wrap=tk.WORD,
+            font=("Consolas", 11),
+            bg='#fafafa',
+            fg='#212121',
+            insertbackground='#1976d2',
+            selectbackground='#bbdefb',
+            selectforeground='#212121',
             relief=tk.FLAT,
-            padx=10,
-            pady=10,
-            height=12  # 设置行数
+            padx=15,
+            pady=15,
+            height=11,
+            borderwidth=0,
+            highlightthickness=0
         )
         self.original_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         original_scroll = ttk.Scrollbar(
-            original_frame_container,
+            original_text_container,
             command=self.original_text.yview
         )
-        original_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        original_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0))
         self.original_text.config(yscrollcommand=original_scroll.set)
 
-        # === 翻译显示区域 ===
-        translated_frame_container = ttk.LabelFrame(
-            self.root,
-            text="🌍 翻译字幕",
-            padding="10",
-            style='Title.TLabelframe',
-            height=250  # 设置最小高度
-        )
-        translated_frame_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=(5, 10))
+        # === 翻译显示区域（现代卡片样式）===
+        translated_card = tk.Frame(main_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
+        translated_card.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
 
-        # 翻译文本框和滚动条
+        # 标题栏
+        translated_header = tk.Frame(translated_card, bg='#ffffff')
+        translated_header.pack(fill=tk.X, padx=20, pady=(15, 10))
+
+        tk.Label(
+            translated_header,
+            text="🌍 翻译字幕",
+            font=("Microsoft YaHei", 12, "bold"),
+            bg='#ffffff',
+            fg='#1976d2'
+        ).pack(side=tk.LEFT)
+
+        # 文本框容器
+        translated_text_container = tk.Frame(translated_card, bg='#ffffff')
+        translated_text_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 15))
+
+        # 翻译文本框（带内边距和圆角效果）
         self.translated_text = tk.Text(
-            translated_frame_container,
+            translated_text_container,
             wrap=tk.WORD,
             font=("Microsoft YaHei", 11),
-            bg='#ffffff',
-            fg='#2c3e50',
-            insertbackground='#3498db',
-            selectbackground='#3498db',
-            selectforeground='white',
+            bg='#fafafa',
+            fg='#212121',
+            insertbackground='#1976d2',
+            selectbackground='#bbdefb',
+            selectforeground='#212121',
             relief=tk.FLAT,
-            padx=10,
-            pady=10,
-            height=12  # 设置行数
+            padx=15,
+            pady=15,
+            height=11,
+            borderwidth=0,
+            highlightthickness=0
         )
         self.translated_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         translated_scroll = ttk.Scrollbar(
-            translated_frame_container,
+            translated_text_container,
             command=self.translated_text.yview
         )
-        translated_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        translated_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0))
         self.translated_text.config(yscrollcommand=translated_scroll.set)
 
-        # === 底部状态栏 ===
-        status_bar = tk.Frame(self.root, bg='#34495e', height=25)
+        # === 底部状态栏（现代化样式）===
+        status_bar = tk.Frame(main_container, bg='#424242', height=40)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
         status_bar.pack_propagate(False)
 
         self.status_bar_label = tk.Label(
             status_bar,
             text="💡 提示：选择语言后点击'开始捕获'，勾选'显示桌面字幕'可启用置顶字幕窗口",
-            font=("Microsoft YaHei", 9),
-            bg='#34495e',
-            fg='#ecf0f1',
+            font=("Microsoft YaHei", 10),
+            bg='#424242',
+            fg='#e0e0e0',
             anchor=tk.W
         )
-        self.status_bar_label.pack(side=tk.LEFT, padx=10)
+        self.status_bar_label.pack(side=tk.LEFT, padx=20, pady=10)
 
     def start_capture(self):
         """开始捕获音频 (阶段2: 支持VAD配置 + 语言选择)"""
@@ -492,8 +575,8 @@ class SubtitleApp:
         self.start_queue_monitor()
 
         # 9. 更新按钮状态
-        self.btn_start.config(state=tk.DISABLED, bg='#95a5a6')
-        self.btn_stop.config(state=tk.NORMAL, bg='#e74c3c')
+        self.btn_start.config(state=tk.DISABLED, bg='#bdbdbd')
+        self.btn_stop.config(state=tk.NORMAL, bg='#f44336')
 
         # 10. 更新状态指示和统计
         self._update_status("running")
@@ -570,8 +653,8 @@ class SubtitleApp:
             self.transcription_thread.join(timeout=10)
 
         # 4. 更新按钮状态
-        self.btn_start.config(state=tk.NORMAL, bg='#27ae60')
-        self.btn_stop.config(state=tk.DISABLED, bg='#95a5a6')
+        self.btn_start.config(state=tk.NORMAL, bg='#4caf50')
+        self.btn_stop.config(state=tk.DISABLED, bg='#bdbdbd')
 
         # 5. 更新状态指示
         self._update_status("stopped")
@@ -637,18 +720,18 @@ class SubtitleApp:
 
     def _update_status(self, status):
         """
-        更新状态指示灯
+        更新状态指示灯（Material Design风格）
 
         参数:
             status (str): 状态 - "running", "stopped"
         """
         if status == "running":
-            self.status_canvas.itemconfig(self.status_indicator, fill='#27ae60', outline='#229954')
-            self.status_label.config(text="● 运行中")
-            self.status_bar_label.config(text="🎬 正在捕获音频并生成字幕...")
+            self.status_canvas.itemconfig(self.status_indicator, fill='#4caf50', outline='#2e7d32', width=2)
+            self.status_label.config(text="运行中")
+            self.status_bar_label.config(text="🎬 正在实时捕获音频并生成双语字幕...")
         elif status == "stopped":
-            self.status_canvas.itemconfig(self.status_indicator, fill='#95a5a6', outline='#7f8c8d')
-            self.status_label.config(text="● 未运行")
+            self.status_canvas.itemconfig(self.status_indicator, fill='#bdbdbd', outline='#757575', width=2)
+            self.status_label.config(text="未运行")
             self.status_bar_label.config(text="💡 提示：选择语言后点击'开始捕获'，勾选'显示桌面字幕'可启用置顶字幕窗口")
 
     def _start_stats_update(self):
