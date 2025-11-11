@@ -396,9 +396,18 @@ class SubtitleApp:
         )
         self.stats_label.pack()
 
+        # === 文本框区域容器（使用Grid布局实现真正的响应式）===
+        textbox_container = tk.Frame(main_container, bg='#f5f5f5')
+        textbox_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
+
+        # 配置Grid权重，使两个文本框各占50%高度
+        textbox_container.grid_rowconfigure(0, weight=1)  # 原文框
+        textbox_container.grid_rowconfigure(1, weight=1)  # 翻译框
+        textbox_container.grid_columnconfigure(0, weight=1)  # 宽度自适应
+
         # === 原文显示区域（现代卡片样式 - 响应式）===
-        original_card = tk.Frame(main_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
-        original_card.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 15))
+        original_card = tk.Frame(textbox_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
+        original_card.grid(row=0, column=0, sticky='nsew', pady=(0, 15))
 
         # 标题栏
         original_header = tk.Frame(original_card, bg='#ffffff')
@@ -416,7 +425,7 @@ class SubtitleApp:
         original_text_container = tk.Frame(original_card, bg='#ffffff')
         original_text_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 15))
 
-        # 原文文本框（响应式 - 移除固定height，自动适应窗口大小）
+        # 原文文本框（响应式）
         self.original_text = tk.Text(
             original_text_container,
             wrap=tk.WORD,
@@ -442,8 +451,8 @@ class SubtitleApp:
         self.original_text.config(yscrollcommand=original_scroll.set)
 
         # === 翻译显示区域（现代卡片样式 - 响应式）===
-        translated_card = tk.Frame(main_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
-        translated_card.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
+        translated_card = tk.Frame(textbox_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
+        translated_card.grid(row=1, column=0, sticky='nsew')
 
         # 标题栏
         translated_header = tk.Frame(translated_card, bg='#ffffff')
@@ -461,7 +470,7 @@ class SubtitleApp:
         translated_text_container = tk.Frame(translated_card, bg='#ffffff')
         translated_text_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 15))
 
-        # 翻译文本框（响应式 - 移除固定height，自动适应窗口大小）
+        # 翻译文本框（响应式）
         self.translated_text = tk.Text(
             translated_text_container,
             wrap=tk.WORD,
