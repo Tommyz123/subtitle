@@ -209,8 +209,8 @@ class DesktopSubtitleWindow:
         返回:
             bool: True表示是垃圾信息，应该过滤掉
         """
-        if not text:
-            return True  # 空文本也算垃圾
+        if not text or not text.strip():
+            return False  # 空文本不算垃圾，让后续逻辑处理
 
         # 检查是否包含黑名单关键词
         for keyword in self.spam_keywords:
@@ -411,19 +411,23 @@ class DesktopSubtitleWindow:
         print(f"[DEBUG] update_subtitle调用: show_original={self.show_original}, original='{original[:30] if original else 'None'}...', translation='{translation[:30] if translation else 'None'}...'")
 
         # 过滤垃圾文本（广告、版权声明等）
-        if self._is_spam(original) and self._is_spam(translation):
+        original_is_spam = self._is_spam(original)
+        translation_is_spam = self._is_spam(translation)
+
+        # 如果原文和翻译都是垃圾，完全跳过
+        if original_is_spam and translation_is_spam:
             print(f"[FILTER] 原文和翻译都是垃圾信息，跳过显示")
             return
 
-        # 如果只有一个是垃圾，使用非垃圾的那个
-        if self._is_spam(original):
+        # 如果原文是垃圾但翻译不是，只显示翻译（不显示原文）
+        if original_is_spam and not translation_is_spam:
             print(f"[FILTER] 原文是垃圾信息，只显示翻译")
-            original = ""  # 不显示垃圾原文
+            original = ""  # 清空垃圾原文
 
-        if self._is_spam(translation):
-            print(f"[FILTER] 翻译是垃圾信息，只显示原文")
-            translation = original  # 翻译是垃圾时，用原文替代
-            original = ""  # 不显示原文区域
+        # 如果翻译是垃圾但原文不是，跳过此次更新（不显示广告翻译）
+        if translation_is_spam and not original_is_spam:
+            print(f"[FILTER] 翻译是垃圾信息，跳过显示")
+            return
 
         # 如果内容相同，不需要更新
         if self.current_original == original and self.current_translation == translation:
@@ -473,7 +477,8 @@ class DesktopSubtitleWindow:
 
             # 绘制原文（灰色小字，次要内容）
             print(f"[DEBUG] 检查原文显示条件: show_original={self.show_original}, original='{original[:50] if original else '(空)'}'")
-            if self.show_original and original:
+            print(f"[DEBUG] original长度={len(original) if original else 0}, strip后='{original.strip()[:30] if original else '(空)'}'")
+            if self.show_original and original and original.strip():
                 print(f"[DEBUG] ✓ 满足条件，正在绘制原文: {original[:50]}...")  # 调试信息
                 # 先更新Canvas以获取当前宽度
                 self.original_canvas.update_idletasks()
