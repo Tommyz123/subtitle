@@ -185,11 +185,11 @@ class DesktopSubtitleWindow:
         self.window.bind('<Button-1>', self._on_drag_start)
         self.window.bind('<B1-Motion>', self._on_drag_motion)
 
-        # 也绑定到标签上，这样点击标签也能拖动
-        self.original_label.bind('<Button-1>', self._on_drag_start)
-        self.original_label.bind('<B1-Motion>', self._on_drag_motion)
-        self.translation_label.bind('<Button-1>', self._on_drag_start)
-        self.translation_label.bind('<B1-Motion>', self._on_drag_motion)
+        # 也绑定到Canvas上，这样点击Canvas也能拖动
+        self.original_canvas.bind('<Button-1>', self._on_drag_start)
+        self.original_canvas.bind('<B1-Motion>', self._on_drag_motion)
+        self.translation_canvas.bind('<Button-1>', self._on_drag_start)
+        self.translation_canvas.bind('<B1-Motion>', self._on_drag_motion)
 
     def _on_drag_start(self, event):
         """
