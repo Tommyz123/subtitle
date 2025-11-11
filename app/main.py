@@ -165,10 +165,14 @@ class SubtitleApp:
         self.create_widgets()
 
     def create_widgets(self):
-        """创建GUI组件 - 2025现代化设计"""
-        # 设置窗口标题和大小
+        """创建GUI组件 - 2025现代化设计（响应式布局）"""
+        # 设置窗口标题和最小/默认大小
         self.root.title("🎬 实时语音翻译字幕系统")
-        self.root.geometry("1000x900")
+        self.root.geometry("1000x900")  # 默认大小
+        self.root.minsize(800, 700)  # 最小大小
+
+        # 允许窗口缩放
+        self.root.resizable(True, True)
 
         # 设置窗口背景色（Material Design浅灰）
         self.root.configure(bg='#f5f5f5')
@@ -392,7 +396,7 @@ class SubtitleApp:
         )
         self.stats_label.pack()
 
-        # === 原文显示区域（现代卡片样式）===
+        # === 原文显示区域（现代卡片样式 - 响应式）===
         original_card = tk.Frame(main_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
         original_card.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 15))
 
@@ -408,11 +412,11 @@ class SubtitleApp:
             fg='#1976d2'
         ).pack(side=tk.LEFT)
 
-        # 文本框容器
+        # 文本框容器（响应式填充剩余空间）
         original_text_container = tk.Frame(original_card, bg='#ffffff')
         original_text_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 15))
 
-        # 原文文本框（带内边距和圆角效果）
+        # 原文文本框（响应式 - 移除固定height，自动适应窗口大小）
         self.original_text = tk.Text(
             original_text_container,
             wrap=tk.WORD,
@@ -425,7 +429,6 @@ class SubtitleApp:
             relief=tk.FLAT,
             padx=15,
             pady=15,
-            height=11,
             borderwidth=0,
             highlightthickness=0
         )
@@ -438,7 +441,7 @@ class SubtitleApp:
         original_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0))
         self.original_text.config(yscrollcommand=original_scroll.set)
 
-        # === 翻译显示区域（现代卡片样式）===
+        # === 翻译显示区域（现代卡片样式 - 响应式）===
         translated_card = tk.Frame(main_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
         translated_card.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
 
@@ -454,11 +457,11 @@ class SubtitleApp:
             fg='#1976d2'
         ).pack(side=tk.LEFT)
 
-        # 文本框容器
+        # 文本框容器（响应式填充剩余空间）
         translated_text_container = tk.Frame(translated_card, bg='#ffffff')
         translated_text_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 15))
 
-        # 翻译文本框（带内边距和圆角效果）
+        # 翻译文本框（响应式 - 移除固定height，自动适应窗口大小）
         self.translated_text = tk.Text(
             translated_text_container,
             wrap=tk.WORD,
@@ -471,7 +474,6 @@ class SubtitleApp:
             relief=tk.FLAT,
             padx=15,
             pady=15,
-            height=11,
             borderwidth=0,
             highlightthickness=0
         )
