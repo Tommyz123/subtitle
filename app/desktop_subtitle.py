@@ -92,13 +92,16 @@ class DesktopSubtitleWindow:
         self.translation_canvas.pack(fill=tk.BOTH, expand=True)
 
         # 原文字幕区域（次要内容，灰色文字，小字）
+        # 不设置固定height，让它根据内容自适应
         self.original_canvas = tk.Canvas(
             main_frame,
             bg=self.bg_color,
-            highlightthickness=0,
-            height=30  # 原文区域固定高度，不占用太多空间
+            highlightthickness=0
         )
         self.original_canvas.pack(fill=tk.X, pady=(8, 0))
+
+        # 存储原文Canvas的frame引用，用于动态调整高度
+        self.original_frame = main_frame
 
     def _create_context_menu(self):
         """创建右键菜单（隐藏的控制选项）"""
@@ -165,6 +168,40 @@ class DesktopSubtitleWindow:
         x = self.window.winfo_x() + event.x - self._drag_start_x
         y = self.window.winfo_y() + event.y - self._drag_start_y
         self.window.geometry(f"+{x}+{y}")
+
+    def _calculate_text_height(self, canvas, text, font_obj, available_width):
+        """
+        计算文本在给定宽度下需要的高度
+
+        参数:
+            canvas: Canvas对象
+            text: 文本内容
+            font_obj: 字体对象
+            available_width: 可用宽度
+
+        返回:
+            int: 所需高度（像素）
+        """
+        if not text:
+            return 0
+
+        # 创建临时文本对象来测量
+        temp_id = canvas.create_text(
+            0, 0,
+            text=text,
+            font=font_obj,
+            width=available_width,
+            justify=tk.CENTER
+        )
+
+        # 获取文本边界框
+        bbox = canvas.bbox(temp_id)
+        canvas.delete(temp_id)
+
+        if bbox:
+            # 返回高度，加上一些边距
+            return bbox[3] - bbox[1] + 20
+        return 30  # 默认最小高度
 
     def _draw_text_with_outline(self, canvas, text, font_obj, text_color, outline_color):
         """
@@ -247,6 +284,23 @@ class DesktopSubtitleWindow:
 
             # 绘制原文（灰色小字，次要内容）
             if self.show_original and original:
+                # 先更新Canvas以获取当前宽度
+                self.original_canvas.update_idletasks()
+                canvas_width = self.original_canvas.winfo_width()
+                available_width = max(canvas_width - 40, 100)
+
+                # 计算原文所需高度
+                required_height = self._calculate_text_height(
+                    self.original_canvas,
+                    original,
+                    original_font,
+                    available_width
+                )
+
+                # 动态调整原文Canvas高度
+                self.original_canvas.config(height=required_height)
+
+                # 绘制原文
                 self._draw_text_with_outline(
                     self.original_canvas,
                     original,
@@ -255,6 +309,8 @@ class DesktopSubtitleWindow:
                     '#000000'   # 黑色描边
                 )
             else:
+                # 不显示原文时，设置最小高度并清空
+                self.original_canvas.config(height=0)
                 self.original_canvas.delete('all')
 
         except Exception as e:
