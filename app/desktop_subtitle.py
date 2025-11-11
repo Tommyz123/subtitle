@@ -29,7 +29,7 @@ class DesktopSubtitleWindow:
 
         # 窗口配置
         self.window.title("🎬 桌面字幕")
-        self.window.geometry("900x200+100+500")  # 默认位置在屏幕下方
+        self.window.geometry("900x250+100+500")  # 默认位置在屏幕下方，增加高度以适应更大字体
 
         # 置顶显示
         self.window.attributes('-topmost', True)
@@ -44,9 +44,9 @@ class DesktopSubtitleWindow:
         # 使用渐变效果的深色背景
         self.window.configure(bg='#1a1a1a')
 
-        # 字体大小
-        self.font_size = 16
-        self.font_size_translation = 14
+        # 字体大小（参考专业字幕标准：24-32号）
+        self.font_size_translation = 26  # 翻译字体（主要内容，更大）
+        self.font_size = 22  # 原文字体（次要内容）
 
         # 创建内容区域
         self._create_widgets()
@@ -156,28 +156,28 @@ class DesktopSubtitleWindow:
         subtitle_frame = tk.Frame(main_frame, bg='#1a1a1a')
         subtitle_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 原文标签（带描边效果）
+        # 翻译标签（带描边效果）- 放在上方，主要内容
         # 使用Canvas绘制文字描边效果
-        self.original_canvas = tk.Canvas(
+        self.translation_canvas = tk.Canvas(
             subtitle_frame,
             bg='#1a1a1a',
             highlightthickness=0,
-            height=70
+            height=90  # 增大高度以适应更大字体
         )
-        self.original_canvas.pack(fill=tk.X, pady=(0, 5))
+        self.translation_canvas.pack(fill=tk.X, pady=(0, 5))
 
         # 分隔线（渐变效果）
         separator = tk.Frame(subtitle_frame, height=2, bg='#444444')
         separator.pack(fill=tk.X, pady=8)
 
-        # 翻译标签（带描边效果）
-        self.translation_canvas = tk.Canvas(
+        # 原文标签（带描边效果）- 放在下方，次要内容
+        self.original_canvas = tk.Canvas(
             subtitle_frame,
             bg='#1a1a1a',
             highlightthickness=0,
-            height=60
+            height=80  # 增大高度以适应更大字体
         )
-        self.translation_canvas.pack(fill=tk.X, pady=(5, 0))
+        self.original_canvas.pack(fill=tk.X, pady=(5, 0))
 
     def _bind_drag_events(self):
         """绑定窗口拖动事件"""
@@ -261,7 +261,7 @@ class DesktopSubtitleWindow:
 
     def update_subtitle(self, original, translation):
         """
-        更新字幕显示
+        更新字幕显示（翻译在上，原文在下）
 
         参数:
             original (str): 原文
@@ -272,40 +272,40 @@ class DesktopSubtitleWindow:
 
         # 更新显示 (只显示最新一条)，使用描边文字
         try:
-            # 创建字体对象
-            original_font = font.Font(family="Arial", size=self.font_size, weight="bold")
+            # 创建字体对象（翻译字体更大，因为是主要内容）
             translation_font = font.Font(family="Microsoft YaHei", size=self.font_size_translation, weight="bold")
+            original_font = font.Font(family="Arial", size=self.font_size, weight="bold")
 
-            # 绘制原文（白色文字，黑色描边）
-            self._draw_text_with_outline(
-                self.original_canvas,
-                original,
-                original_font,
-                '#FFFFFF',  # 白色文字
-                '#000000'   # 黑色描边
-            )
-
-            # 绘制翻译（黄色文字，黑色描边）
+            # 绘制翻译（金黄色文字，黑色描边）- 在上方
             self._draw_text_with_outline(
                 self.translation_canvas,
                 translation,
                 translation_font,
-                '#FFD700',  # 金黄色文字
+                '#FFD700',  # 金黄色文字（主要内容）
+                '#000000'   # 黑色描边
+            )
+
+            # 绘制原文（白色文字，黑色描边）- 在下方
+            self._draw_text_with_outline(
+                self.original_canvas,
+                original,
+                original_font,
+                '#FFFFFF',  # 白色文字（次要内容）
                 '#000000'   # 黑色描边
             )
         except Exception as e:
             print(f"[ERROR] 更新字幕显示失败: {e}")
 
     def _increase_font_size(self):
-        """增大字体"""
-        self.font_size = min(self.font_size + 2, 32)
-        self.font_size_translation = min(self.font_size_translation + 2, 28)
+        """增大字体（翻译字体更大）"""
+        self.font_size_translation = min(self.font_size_translation + 2, 36)  # 翻译字体最大36
+        self.font_size = min(self.font_size + 2, 32)  # 原文字体最大32
         self.update_subtitle(self.current_original, self.current_translation)
 
     def _decrease_font_size(self):
         """减小字体"""
-        self.font_size = max(self.font_size - 2, 12)
-        self.font_size_translation = max(self.font_size_translation - 2, 10)
+        self.font_size_translation = max(self.font_size_translation - 2, 18)  # 翻译字体最小18
+        self.font_size = max(self.font_size - 2, 14)  # 原文字体最小14
         self.update_subtitle(self.current_original, self.current_translation)
 
     def _update_alpha(self, value):
