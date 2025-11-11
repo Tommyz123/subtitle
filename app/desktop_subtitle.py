@@ -152,32 +152,36 @@ class DesktopSubtitleWindow:
             bg='#1a1a1a'
         ).pack(side=tk.RIGHT, padx=5)
 
-        # 字幕显示区域
+        # 字幕显示区域（使用Grid布局实现70/30比例）
         subtitle_frame = tk.Frame(main_frame, bg='#1a1a1a')
         subtitle_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 翻译标签（带描边效果）- 放在上方，主要内容
+        # 配置Grid权重：翻译70%，原文30%
+        subtitle_frame.grid_rowconfigure(0, weight=7)  # 翻译占70%
+        subtitle_frame.grid_rowconfigure(1, weight=0, minsize=2)  # 分隔线
+        subtitle_frame.grid_rowconfigure(2, weight=3)  # 原文占30%
+        subtitle_frame.grid_columnconfigure(0, weight=1)  # 宽度自适应
+
+        # 翻译标签（带描边效果）- 放在上方，占70%空间
         # 使用Canvas绘制文字描边效果
         self.translation_canvas = tk.Canvas(
             subtitle_frame,
             bg='#1a1a1a',
-            highlightthickness=0,
-            height=90  # 增大高度以适应更大字体
+            highlightthickness=0
         )
-        self.translation_canvas.pack(fill=tk.X, pady=(0, 5))
+        self.translation_canvas.grid(row=0, column=0, sticky='nsew', pady=(0, 5))
 
         # 分隔线（渐变效果）
         separator = tk.Frame(subtitle_frame, height=2, bg='#444444')
-        separator.pack(fill=tk.X, pady=8)
+        separator.grid(row=1, column=0, sticky='ew', pady=4)
 
-        # 原文标签（带描边效果）- 放在下方，次要内容
+        # 原文标签（带描边效果）- 放在下方，占30%空间
         self.original_canvas = tk.Canvas(
             subtitle_frame,
             bg='#1a1a1a',
-            highlightthickness=0,
-            height=80  # 增大高度以适应更大字体
+            highlightthickness=0
         )
-        self.original_canvas.pack(fill=tk.X, pady=(5, 0))
+        self.original_canvas.grid(row=2, column=0, sticky='nsew', pady=(5, 0))
 
     def _bind_drag_events(self):
         """绑定窗口拖动事件"""
