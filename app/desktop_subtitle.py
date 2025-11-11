@@ -1,10 +1,10 @@
 """
-桌面字幕窗口模块 - YouTube风格版
+桌面字幕窗口模块 - Netflix风格版
 
 职责:
 - 创建独立的置顶字幕窗口
-- YouTube风格：极简设计，高对比度，专注于字幕显示
-- 半透明黑色背景，白色文字
+- Netflix风格：极简设计，透明窗口，字幕有半透明黑色圆角背景框
+- 淡入淡出动画效果，切换更平滑
 - 支持拖动和调整位置
 - 可通过右键菜单或快捷键调整设置
 """
@@ -14,7 +14,7 @@ from tkinter import Menu, font
 
 
 class DesktopSubtitleWindow:
-    """桌面字幕窗口 - YouTube风格：极简、清晰、易读"""
+    """桌面字幕窗口 - Netflix风格：透明窗口 + 圆角背景框 + 淡入淡出动画"""
 
     def __init__(self, parent):
         """
@@ -39,12 +39,15 @@ class DesktopSubtitleWindow:
         # 置顶显示
         self.window.attributes('-topmost', True)
 
-        # 半透明背景 (0.0-1.0, 0.92表示92%不透明)
-        self.alpha = 0.92
-        self.window.attributes('-alpha', self.alpha)
+        # 窗口完全透明（Netflix风格）
+        # 使用透明颜色而不是alpha属性，这样可以让背景完全透明
+        self.window.attributes('-alpha', 1.0)  # 窗口不透明度为100%
 
-        # 半透明黑色背景（YouTube风格）
-        self.bg_color = '#000000'
+        # 设置透明色（绿色作为透明键）
+        self.window.wm_attributes('-transparentcolor', 'green')
+
+        # 窗口背景色设为透明键颜色
+        self.bg_color = 'green'
         self.window.configure(bg=self.bg_color)
 
         # 字体大小（YouTube标准：24-32px）
@@ -53,6 +56,11 @@ class DesktopSubtitleWindow:
 
         # 是否显示原文（默认显示）
         self.show_original = True
+
+        # 淡入淡出动画相关
+        self.fade_duration = 200  # 动画持续时间（毫秒）
+        self.current_alpha = 1.0  # 当前透明度
+        self.fade_timer = None
 
         # 创建内容区域
         self._create_widgets()
@@ -78,12 +86,12 @@ class DesktopSubtitleWindow:
         self.window.bind('<Configure>', self._on_window_resize)
 
     def _create_widgets(self):
-        """创建窗口内部组件 - YouTube极简风格"""
-        # 主容器（无边距，极简设计）
+        """创建窗口内部组件 - Netflix极简风格"""
+        # 主容器（透明背景，极简设计）
         main_frame = tk.Frame(self.window, bg=self.bg_color)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
 
-        # 翻译字幕区域（主要内容，YouTube风格白色文字）
+        # 翻译字幕区域（主要内容，Netflix风格：白色文字 + 黑色圆角背景框）
         self.translation_canvas = tk.Canvas(
             main_frame,
             bg=self.bg_color,
@@ -203,9 +211,9 @@ class DesktopSubtitleWindow:
             return bbox[3] - bbox[1] + 20
         return 30  # 默认最小高度
 
-    def _draw_text_with_outline(self, canvas, text, font_obj, text_color, outline_color):
+    def _draw_text_with_outline(self, canvas, text, font_obj, text_color, outline_color, bg_color='#000000', bg_alpha=0.8):
         """
-        在Canvas上绘制带描边的文字（YouTube风格）
+        在Canvas上绘制带描边的文字（Netflix风格：文字有半透明背景框）
 
         参数:
             canvas: Canvas对象
@@ -213,6 +221,8 @@ class DesktopSubtitleWindow:
             font_obj: 字体对象
             text_color: 文字颜色
             outline_color: 描边颜色
+            bg_color: 背景框颜色（默认黑色）
+            bg_alpha: 背景框透明度（0.0-1.0，默认0.8）
         """
         canvas.delete('all')
 
@@ -231,10 +241,100 @@ class DesktopSubtitleWindow:
         x, y = width // 2, height // 2
 
         # 计算可用宽度
-        available_width = max(width - 40, 100)
+        available_width = max(width - 60, 100)
 
-        # 绘制描边（YouTube风格：粗黑色描边）
-        offsets = [(-2, -2), (-2, 2), (2, -2), (2, 2), (-2, 0), (2, 0), (0, -2), (0, 2)]
+        # 先创建临时文本来测量边界
+        temp_text = canvas.create_text(
+            x, y,
+            text=text,
+            font=font_obj,
+            width=available_width,
+            justify=tk.CENTER,
+            anchor=tk.CENTER
+        )
+
+        # 获取文本边界框
+        bbox = canvas.bbox(temp_text)
+        canvas.delete(temp_text)
+
+        if bbox:
+            # 计算背景框坐标（添加padding）
+            padding_x = 15
+            padding_y = 8
+            bg_x1 = bbox[0] - padding_x
+            bg_y1 = bbox[1] - padding_y
+            bg_x2 = bbox[2] + padding_x
+            bg_y2 = bbox[3] + padding_y
+
+            # 计算半透明黑色（通过混合颜色模拟透明度）
+            # 使用较深的灰色模拟半透明黑色效果
+            alpha_int = int(bg_alpha * 255)
+            # 将hex转为RGB
+            r = int(bg_color[1:3], 16)
+            g = int(bg_color[3:5], 16)
+            b = int(bg_color[5:7], 16)
+
+            # 模拟半透明效果（与绿色透明键混合）
+            # 绿色背景是(0,255,0)，黑色背景混合后变成深灰绿色
+            if bg_alpha < 1.0:
+                bg_r = int(r * bg_alpha + 0 * (1 - bg_alpha))
+                bg_g = int(g * bg_alpha + 50 * (1 - bg_alpha))  # 稍微偏绿以避免完全透明
+                bg_b = int(b * bg_alpha + 0 * (1 - bg_alpha))
+                bg_mixed = f'#{bg_r:02x}{bg_g:02x}{bg_b:02x}'
+            else:
+                bg_mixed = bg_color
+
+            # 绘制圆角矩形背景（通过多个椭圆和矩形组合）
+            corner_radius = 8
+
+            # 主矩形（横向）
+            canvas.create_rectangle(
+                bg_x1 + corner_radius, bg_y1,
+                bg_x2 - corner_radius, bg_y2,
+                fill=bg_mixed,
+                outline=''
+            )
+
+            # 主矩形（纵向）
+            canvas.create_rectangle(
+                bg_x1, bg_y1 + corner_radius,
+                bg_x2, bg_y2 - corner_radius,
+                fill=bg_mixed,
+                outline=''
+            )
+
+            # 四个圆角
+            # 左上
+            canvas.create_oval(
+                bg_x1, bg_y1,
+                bg_x1 + corner_radius * 2, bg_y1 + corner_radius * 2,
+                fill=bg_mixed,
+                outline=''
+            )
+            # 右上
+            canvas.create_oval(
+                bg_x2 - corner_radius * 2, bg_y1,
+                bg_x2, bg_y1 + corner_radius * 2,
+                fill=bg_mixed,
+                outline=''
+            )
+            # 左下
+            canvas.create_oval(
+                bg_x1, bg_y2 - corner_radius * 2,
+                bg_x1 + corner_radius * 2, bg_y2,
+                fill=bg_mixed,
+                outline=''
+            )
+            # 右下
+            canvas.create_oval(
+                bg_x2 - corner_radius * 2, bg_y2 - corner_radius * 2,
+                bg_x2, bg_y2,
+                fill=bg_mixed,
+                outline=''
+            )
+
+        # 绘制描边（更细的描边，Netflix风格）
+        offsets = [(-1, -1), (-1, 1), (1, -1), (1, 1)]
         for dx, dy in offsets:
             canvas.create_text(
                 x + dx, y + dy,
@@ -259,7 +359,33 @@ class DesktopSubtitleWindow:
 
     def update_subtitle(self, original, translation):
         """
-        更新字幕显示（YouTube风格：翻译为主，原文为辅）
+        更新字幕显示（Netflix风格：翻译为主，原文为辅，带淡入淡出动画）
+
+        参数:
+            original (str): 原文
+            translation (str): 翻译
+        """
+        # 如果内容相同，不需要更新
+        if self.current_original == original and self.current_translation == translation:
+            return
+
+        # 取消之前的动画定时器
+        if self.fade_timer:
+            self.window.after_cancel(self.fade_timer)
+
+        # 简单的淡入淡出效果：先清空，短暂延迟后绘制新内容
+        # 这创造了一个视觉上的平滑过渡
+
+        # 阶段1：淡出（清空旧内容）
+        self.translation_canvas.delete('all')
+        self.original_canvas.delete('all')
+
+        # 阶段2：短暂延迟后淡入新内容（50ms，模拟淡入淡出效果）
+        self.fade_timer = self.window.after(50, lambda: self._render_subtitle_content(original, translation))
+
+    def _render_subtitle_content(self, original, translation):
+        """
+        实际渲染字幕内容（在淡入淡出动画后调用）
 
         参数:
             original (str): 原文
@@ -273,13 +399,15 @@ class DesktopSubtitleWindow:
             translation_font = font.Font(family="Microsoft YaHei", size=self.font_size_translation, weight="bold")
             original_font = font.Font(family="Arial", size=self.font_size_original, weight="normal")
 
-            # 绘制翻译（YouTube标准：白色文字 + 黑色描边）
+            # 绘制翻译（Netflix风格：白色文字 + 黑色半透明背景框）
             self._draw_text_with_outline(
                 self.translation_canvas,
                 translation,
                 translation_font,
-                '#FFFFFF',  # 白色文字（YouTube标准）
-                '#000000'   # 黑色描边
+                '#FFFFFF',      # 白色文字
+                '#000000',      # 黑色描边
+                bg_color='#000000',  # 黑色背景框
+                bg_alpha=0.75   # 75%不透明度
             )
 
             # 绘制原文（灰色小字，次要内容）
@@ -300,13 +428,15 @@ class DesktopSubtitleWindow:
                 # 动态调整原文Canvas高度
                 self.original_canvas.config(height=required_height)
 
-                # 绘制原文
+                # 绘制原文（更透明的背景）
                 self._draw_text_with_outline(
                     self.original_canvas,
                     original,
                     original_font,
-                    '#CCCCCC',  # 浅灰色文字
-                    '#000000'   # 黑色描边
+                    '#CCCCCC',      # 浅灰色文字
+                    '#000000',      # 黑色描边
+                    bg_color='#000000',  # 黑色背景框
+                    bg_alpha=0.65   # 65%不透明度（更透明）
                 )
             else:
                 # 不显示原文时，设置最小高度并清空
@@ -367,13 +497,14 @@ class DesktopSubtitleWindow:
     def _redraw_subtitles(self):
         """重新绘制字幕"""
         if self.current_original or self.current_translation:
-            self.update_subtitle(self.current_original, self.current_translation)
+            # 直接渲染，不需要淡入淡出效果（窗口调整大小时）
+            self._render_subtitle_content(self.current_original, self.current_translation)
 
     def show(self):
         """显示窗口"""
         self.window.deiconify()
         self.window.lift()
-        print("[INFO] 桌面字幕窗口已显示（YouTube风格）")
+        print("[INFO] 桌面字幕窗口已显示（Netflix风格）")
 
     def hide(self):
         """隐藏窗口"""
