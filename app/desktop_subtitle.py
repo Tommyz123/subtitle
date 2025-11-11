@@ -28,7 +28,7 @@ class DesktopSubtitleWindow:
 
         # 窗口配置
         self.window.title("字幕")
-        self.window.geometry("900x180+100+600")  # 默认位置在屏幕下方
+        self.window.geometry("900x280+100+600")  # 增加高度到280px，避免长句子被遮挡
 
         # 设置窗口最小尺寸
         self.window.minsize(300, 80)
@@ -57,6 +57,25 @@ class DesktopSubtitleWindow:
         # 是否显示原文（默认显示）
         self.show_original = True
         self.show_original_var = None  # 右键菜单的变量，稍后在创建菜单时初始化
+
+        # 广告和非字幕文本过滤规则（黑名单关键词）
+        self.spam_keywords = [
+            "优优独播剧场",
+            "YoYo Television",
+            "Amara.org",
+            "请不吝点赞订阅",
+            "請不吝點贊訂閱",
+            "转发打赏",
+            "轉發打賞",
+            "支持明鏡",
+            "字幕由",
+            "Subtitle",
+            "Subscribe",
+            "Like and Share",
+            "©",
+            "Copyright",
+            "版权所有",
+        ]
 
         # 淡入淡出动画相关
         self.fade_duration = 200  # 动画持续时间（毫秒）
@@ -179,6 +198,27 @@ class DesktopSubtitleWindow:
         x = self.window.winfo_x() + event.x - self._drag_start_x
         y = self.window.winfo_y() + event.y - self._drag_start_y
         self.window.geometry(f"+{x}+{y}")
+
+    def _is_spam(self, text):
+        """
+        检查文本是否包含垃圾信息（广告、版权声明等）
+
+        参数:
+            text (str): 待检查的文本
+
+        返回:
+            bool: True表示是垃圾信息，应该过滤掉
+        """
+        if not text:
+            return True  # 空文本也算垃圾
+
+        # 检查是否包含黑名单关键词
+        for keyword in self.spam_keywords:
+            if keyword.lower() in text.lower():
+                print(f"[FILTER] 过滤掉广告文本: {text[:50]}... (关键词: {keyword})")
+                return True
+
+        return False
 
     def _calculate_text_height(self, canvas, text, font_obj, available_width):
         """
@@ -368,7 +408,22 @@ class DesktopSubtitleWindow:
             original (str): 原文
             translation (str): 翻译
         """
-        print(f"[DEBUG] update_subtitle调用: show_original={self.show_original}, original='{original[:30] if original else 'None'}...'")  # 调试信息
+        print(f"[DEBUG] update_subtitle调用: show_original={self.show_original}, original='{original[:30] if original else 'None'}...', translation='{translation[:30] if translation else 'None'}...'")
+
+        # 过滤垃圾文本（广告、版权声明等）
+        if self._is_spam(original) and self._is_spam(translation):
+            print(f"[FILTER] 原文和翻译都是垃圾信息，跳过显示")
+            return
+
+        # 如果只有一个是垃圾，使用非垃圾的那个
+        if self._is_spam(original):
+            print(f"[FILTER] 原文是垃圾信息，只显示翻译")
+            original = ""  # 不显示垃圾原文
+
+        if self._is_spam(translation):
+            print(f"[FILTER] 翻译是垃圾信息，只显示原文")
+            translation = original  # 翻译是垃圾时，用原文替代
+            original = ""  # 不显示原文区域
 
         # 如果内容相同，不需要更新
         if self.current_original == original and self.current_translation == translation:
@@ -417,8 +472,9 @@ class DesktopSubtitleWindow:
             )
 
             # 绘制原文（灰色小字，次要内容）
+            print(f"[DEBUG] 检查原文显示条件: show_original={self.show_original}, original='{original[:50] if original else '(空)'}'")
             if self.show_original and original:
-                print(f"[DEBUG] 正在绘制原文: {original[:50]}...")  # 调试信息
+                print(f"[DEBUG] ✓ 满足条件，正在绘制原文: {original[:50]}...")  # 调试信息
                 # 先更新Canvas以获取当前宽度
                 self.original_canvas.update_idletasks()
                 canvas_width = self.original_canvas.winfo_width()
@@ -449,6 +505,10 @@ class DesktopSubtitleWindow:
                 )
             else:
                 # 不显示原文时，设置最小高度并清空
+                if not self.show_original:
+                    print(f"[DEBUG] ✗ 原文未显示：show_original=False（用户关闭了原文显示）")
+                elif not original:
+                    print(f"[DEBUG] ✗ 原文未显示：original为空")
                 self.original_canvas.config(height=0)
                 self.original_canvas.delete('all')
 
