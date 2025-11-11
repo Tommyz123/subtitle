@@ -1,21 +1,20 @@
 """
-桌面字幕窗口模块 - 优化版
+桌面字幕窗口模块 - YouTube风格版
 
 职责:
 - 创建独立的置顶字幕窗口
+- YouTube风格：极简设计，高对比度，专注于字幕显示
+- 半透明黑色背景，白色文字
 - 支持拖动和调整位置
-- 半透明背景
-- 实时更新字幕显示
-- 文字描边效果，提高可读性
-- 可调节字体大小和透明度
+- 可通过右键菜单或快捷键调整设置
 """
 
 import tkinter as tk
-from tkinter import ttk, font
+from tkinter import Menu, font
 
 
 class DesktopSubtitleWindow:
-    """桌面字幕窗口 - 置顶、半透明、可拖动"""
+    """桌面字幕窗口 - YouTube风格：极简、清晰、易读"""
 
     def __init__(self, parent):
         """
@@ -28,28 +27,32 @@ class DesktopSubtitleWindow:
         self.window = tk.Toplevel(parent)
 
         # 窗口配置
-        self.window.title("🎬 桌面字幕")
-        self.window.geometry("900x250+100+500")  # 默认位置在屏幕下方，增加高度以适应更大字体
+        self.window.title("字幕")
+        self.window.geometry("900x180+100+600")  # 默认位置在屏幕下方
 
-        # 设置窗口最小尺寸，确保字幕不会被遮挡
-        self.window.minsize(400, 180)  # 最小宽度400px，最小高度180px
+        # 设置窗口最小尺寸
+        self.window.minsize(300, 80)
+
+        # 无边框设计（YouTube风格）
+        self.window.overrideredirect(True)
 
         # 置顶显示
         self.window.attributes('-topmost', True)
 
-        # 半透明背景 (0.0-1.0, 0.85表示85%不透明)
-        self.alpha = 0.85
+        # 半透明背景 (0.0-1.0, 0.92表示92%不透明)
+        self.alpha = 0.92
         self.window.attributes('-alpha', self.alpha)
 
-        # 窗口样式 - 保留标题栏以便拖动
-        # self.window.overrideredirect(True)  # 如果需要无边框可以启用
+        # 半透明黑色背景（YouTube风格）
+        self.bg_color = '#000000'
+        self.window.configure(bg=self.bg_color)
 
-        # 使用渐变效果的深色背景
-        self.window.configure(bg='#1a1a1a')
+        # 字体大小（YouTube标准：24-32px）
+        self.font_size_translation = 28  # 翻译字体（主要内容）
+        self.font_size_original = 18     # 原文字体（次要内容）
 
-        # 字体大小（参考专业字幕标准：24-32号）
-        self.font_size_translation = 26  # 翻译字体（主要内容，更大）
-        self.font_size = 22  # 原文字体（次要内容）
+        # 是否显示原文（默认显示）
+        self.show_original = True
 
         # 创建内容区域
         self._create_widgets()
@@ -65,170 +68,107 @@ class DesktopSubtitleWindow:
         self.current_original = ""
         self.current_translation = ""
 
+        # 创建右键菜单
+        self._create_context_menu()
+
         # 绑定快捷键
         self._bind_shortcuts()
 
-        # 绑定窗口缩放事件，确保字幕自适应
+        # 绑定窗口缩放事件
         self.window.bind('<Configure>', self._on_window_resize)
 
     def _create_widgets(self):
-        """创建窗口内部组件"""
-        # 主容器（带圆角效果的内边距）
-        main_frame = tk.Frame(self.window, bg='#1a1a1a')
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        """创建窗口内部组件 - YouTube极简风格"""
+        # 主容器（无边距，极简设计）
+        main_frame = tk.Frame(self.window, bg=self.bg_color)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
 
-        # 控制栏（小型按钮区域）
-        control_frame = tk.Frame(main_frame, bg='#1a1a1a')
-        control_frame.pack(fill=tk.X, pady=(0, 10))
-
-        # 字体大小控制
-        tk.Label(
-            control_frame,
-            text="字号:",
-            font=("Microsoft YaHei", 9),
-            fg="#999999",
-            bg='#1a1a1a'
-        ).pack(side=tk.LEFT, padx=5)
-
-        btn_font_smaller = tk.Button(
-            control_frame,
-            text="A-",
-            font=("Arial", 9, "bold"),
-            bg='#333333',
-            fg='white',
-            activebackground='#444444',
-            activeforeground='white',
-            relief=tk.FLAT,
-            padx=8,
-            pady=2,
-            cursor='hand2',
-            command=self._decrease_font_size
-        )
-        btn_font_smaller.pack(side=tk.LEFT, padx=2)
-
-        btn_font_larger = tk.Button(
-            control_frame,
-            text="A+",
-            font=("Arial", 9, "bold"),
-            bg='#333333',
-            fg='white',
-            activebackground='#444444',
-            activeforeground='white',
-            relief=tk.FLAT,
-            padx=8,
-            pady=2,
-            cursor='hand2',
-            command=self._increase_font_size
-        )
-        btn_font_larger.pack(side=tk.LEFT, padx=2)
-
-        # 透明度控制
-        tk.Label(
-            control_frame,
-            text="透明度:",
-            font=("Microsoft YaHei", 9),
-            fg="#999999",
-            bg='#1a1a1a'
-        ).pack(side=tk.LEFT, padx=(20, 5))
-
-        self.alpha_scale = tk.Scale(
-            control_frame,
-            from_=0.3,
-            to=1.0,
-            resolution=0.05,
-            orient=tk.HORIZONTAL,
-            length=120,
-            bg='#333333',
-            fg='white',
-            troughcolor='#555555',
-            activebackground='#666666',
-            highlightthickness=0,
-            showvalue=False,
-            command=self._update_alpha
-        )
-        self.alpha_scale.set(self.alpha)
-        self.alpha_scale.pack(side=tk.LEFT, padx=5)
-
-        # 提示文本
-        tk.Label(
-            control_frame,
-            text="[快捷键: Ctrl+↑/↓调整字号, Ctrl+鼠标滚轮调透明度]",
-            font=("Microsoft YaHei", 8),
-            fg="#666666",
-            bg='#1a1a1a'
-        ).pack(side=tk.RIGHT, padx=5)
-
-        # 字幕显示区域（使用Grid布局实现70/30比例）
-        subtitle_frame = tk.Frame(main_frame, bg='#1a1a1a')
-        subtitle_frame.pack(fill=tk.BOTH, expand=True)
-
-        # 配置Grid权重：翻译70%，原文30%
-        # 添加minsize确保翻译区域始终有足够空间，不会被遮挡
-        subtitle_frame.grid_rowconfigure(0, weight=7, minsize=100)  # 翻译占70%，最小100px
-        subtitle_frame.grid_rowconfigure(1, weight=0, minsize=2)  # 分隔线
-        subtitle_frame.grid_rowconfigure(2, weight=3, minsize=50)  # 原文占30%，最小50px
-        subtitle_frame.grid_columnconfigure(0, weight=1)  # 宽度自适应
-
-        # 翻译标签（带描边效果）- 放在上方，占70%空间
-        # 使用Canvas绘制文字描边效果
+        # 翻译字幕区域（主要内容，YouTube风格白色文字）
         self.translation_canvas = tk.Canvas(
-            subtitle_frame,
-            bg='#1a1a1a',
+            main_frame,
+            bg=self.bg_color,
             highlightthickness=0
         )
-        self.translation_canvas.grid(row=0, column=0, sticky='nsew', pady=(0, 5))
+        self.translation_canvas.pack(fill=tk.BOTH, expand=True)
 
-        # 分隔线（渐变效果）
-        separator = tk.Frame(subtitle_frame, height=2, bg='#444444')
-        separator.grid(row=1, column=0, sticky='ew', pady=4)
-
-        # 原文标签（带描边效果）- 放在下方，占30%空间
+        # 原文字幕区域（次要内容，灰色文字，小字）
         self.original_canvas = tk.Canvas(
-            subtitle_frame,
-            bg='#1a1a1a',
-            highlightthickness=0
+            main_frame,
+            bg=self.bg_color,
+            highlightthickness=0,
+            height=30  # 原文区域固定高度，不占用太多空间
         )
-        self.original_canvas.grid(row=2, column=0, sticky='nsew', pady=(5, 0))
+        self.original_canvas.pack(fill=tk.X, pady=(8, 0))
+
+    def _create_context_menu(self):
+        """创建右键菜单（隐藏的控制选项）"""
+        self.context_menu = Menu(self.window, tearoff=0)
+
+        # 字体大小子菜单
+        font_menu = Menu(self.context_menu, tearoff=0)
+        font_menu.add_command(label="增大 (Ctrl+↑)", command=self._increase_font_size)
+        font_menu.add_command(label="减小 (Ctrl+↓)", command=self._decrease_font_size)
+        self.context_menu.add_cascade(label="字体大小", menu=font_menu)
+
+        # 透明度子菜单
+        alpha_menu = Menu(self.context_menu, tearoff=0)
+        for alpha_val in [1.0, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70]:
+            alpha_menu.add_command(
+                label=f"{int(alpha_val*100)}%",
+                command=lambda a=alpha_val: self._set_alpha(a)
+            )
+        self.context_menu.add_cascade(label="透明度", menu=alpha_menu)
+
+        # 显示选项
+        self.context_menu.add_separator()
+        self.context_menu.add_checkbutton(
+            label="显示原文",
+            command=self._toggle_original,
+            variable=tk.BooleanVar(value=True)
+        )
+
+        # 窗口控制
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="关闭 (ESC)", command=self.hide)
+
+        # 绑定右键菜单
+        self.window.bind('<Button-3>', self._show_context_menu)
+        self.translation_canvas.bind('<Button-3>', self._show_context_menu)
+        self.original_canvas.bind('<Button-3>', self._show_context_menu)
+
+    def _show_context_menu(self, event):
+        """显示右键菜单"""
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
 
     def _bind_drag_events(self):
         """绑定窗口拖动事件"""
-        # 绑定到标题栏和整个窗口
+        # 绑定到整个窗口
         self.window.bind('<Button-1>', self._on_drag_start)
         self.window.bind('<B1-Motion>', self._on_drag_motion)
 
-        # 也绑定到Canvas上，这样点击Canvas也能拖动
-        self.original_canvas.bind('<Button-1>', self._on_drag_start)
-        self.original_canvas.bind('<B1-Motion>', self._on_drag_motion)
+        # 也绑定到Canvas上
         self.translation_canvas.bind('<Button-1>', self._on_drag_start)
         self.translation_canvas.bind('<B1-Motion>', self._on_drag_motion)
+        self.original_canvas.bind('<Button-1>', self._on_drag_start)
+        self.original_canvas.bind('<B1-Motion>', self._on_drag_motion)
 
     def _on_drag_start(self, event):
-        """
-        开始拖动
-
-        参数:
-            event: 鼠标事件
-        """
+        """开始拖动"""
         self._drag_start_x = event.x
         self._drag_start_y = event.y
 
     def _on_drag_motion(self, event):
-        """
-        拖动过程中
-
-        参数:
-            event: 鼠标事件
-        """
-        # 计算窗口新位置
+        """拖动过程中"""
         x = self.window.winfo_x() + event.x - self._drag_start_x
         y = self.window.winfo_y() + event.y - self._drag_start_y
-
-        # 移动窗口
         self.window.geometry(f"+{x}+{y}")
 
     def _draw_text_with_outline(self, canvas, text, font_obj, text_color, outline_color):
         """
-        在Canvas上绘制带描边的文字（响应式自适应）
+        在Canvas上绘制带描边的文字（YouTube风格）
 
         参数:
             canvas: Canvas对象
@@ -237,25 +177,26 @@ class DesktopSubtitleWindow:
             text_color: 文字颜色
             outline_color: 描边颜色
         """
-        # 清空canvas
         canvas.delete('all')
+
+        if not text:  # 如果没有文本，不绘制
+            return
 
         # 强制更新Canvas尺寸
         canvas.update_idletasks()
         width = canvas.winfo_width()
         height = canvas.winfo_height()
 
-        # 如果Canvas尺寸无效，跳过绘制
         if width <= 1 or height <= 1:
             return
 
         # 中心位置
         x, y = width // 2, height // 2
 
-        # 计算可用宽度（留出边距）
-        available_width = max(width - 60, 100)  # 最小100px
+        # 计算可用宽度
+        available_width = max(width - 40, 100)
 
-        # 绘制描边（在四个方向绘制黑色文字）
+        # 绘制描边（YouTube风格：粗黑色描边）
         offsets = [(-2, -2), (-2, 2), (2, -2), (2, 2), (-2, 0), (2, 0), (0, -2), (0, 2)]
         for dx, dy in offsets:
             canvas.create_text(
@@ -281,7 +222,7 @@ class DesktopSubtitleWindow:
 
     def update_subtitle(self, original, translation):
         """
-        更新字幕显示（翻译在上，原文在下）
+        更新字幕显示（YouTube风格：翻译为主，原文为辅）
 
         参数:
             original (str): 原文
@@ -290,53 +231,56 @@ class DesktopSubtitleWindow:
         self.current_original = original
         self.current_translation = translation
 
-        # 更新显示 (只显示最新一条)，使用描边文字
         try:
-            # 创建字体对象（翻译字体更大，因为是主要内容）
+            # 创建字体对象（使用无衬线字体，类似YouTube的Roboto）
             translation_font = font.Font(family="Microsoft YaHei", size=self.font_size_translation, weight="bold")
-            original_font = font.Font(family="Arial", size=self.font_size, weight="bold")
+            original_font = font.Font(family="Arial", size=self.font_size_original, weight="normal")
 
-            # 绘制翻译（金黄色文字，黑色描边）- 在上方
+            # 绘制翻译（YouTube标准：白色文字 + 黑色描边）
             self._draw_text_with_outline(
                 self.translation_canvas,
                 translation,
                 translation_font,
-                '#FFD700',  # 金黄色文字（主要内容）
+                '#FFFFFF',  # 白色文字（YouTube标准）
                 '#000000'   # 黑色描边
             )
 
-            # 绘制原文（白色文字，黑色描边）- 在下方
-            self._draw_text_with_outline(
-                self.original_canvas,
-                original,
-                original_font,
-                '#FFFFFF',  # 白色文字（次要内容）
-                '#000000'   # 黑色描边
-            )
+            # 绘制原文（灰色小字，次要内容）
+            if self.show_original and original:
+                self._draw_text_with_outline(
+                    self.original_canvas,
+                    original,
+                    original_font,
+                    '#CCCCCC',  # 浅灰色文字
+                    '#000000'   # 黑色描边
+                )
+            else:
+                self.original_canvas.delete('all')
+
         except Exception as e:
             print(f"[ERROR] 更新字幕显示失败: {e}")
 
     def _increase_font_size(self):
-        """增大字体（翻译字体更大）"""
-        self.font_size_translation = min(self.font_size_translation + 2, 36)  # 翻译字体最大36
-        self.font_size = min(self.font_size + 2, 32)  # 原文字体最大32
+        """增大字体"""
+        self.font_size_translation = min(self.font_size_translation + 2, 40)
+        self.font_size_original = min(self.font_size_original + 2, 24)
         self.update_subtitle(self.current_original, self.current_translation)
 
     def _decrease_font_size(self):
         """减小字体"""
-        self.font_size_translation = max(self.font_size_translation - 2, 18)  # 翻译字体最小18
-        self.font_size = max(self.font_size - 2, 14)  # 原文字体最小14
+        self.font_size_translation = max(self.font_size_translation - 2, 18)
+        self.font_size_original = max(self.font_size_original - 2, 12)
         self.update_subtitle(self.current_original, self.current_translation)
 
-    def _update_alpha(self, value):
-        """
-        更新窗口透明度
-
-        参数:
-            value: 透明度值（0.0-1.0）
-        """
+    def _set_alpha(self, value):
+        """设置窗口透明度"""
         self.alpha = float(value)
         self.window.attributes('-alpha', self.alpha)
+
+    def _toggle_original(self):
+        """切换原文显示"""
+        self.show_original = not self.show_original
+        self.update_subtitle(self.current_original, self.current_translation)
 
     def _bind_shortcuts(self):
         """绑定快捷键"""
@@ -346,44 +290,23 @@ class DesktopSubtitleWindow:
         self.window.bind('<Control-Down>', lambda e: self._decrease_font_size())
         # Ctrl + 鼠标滚轮：调整透明度
         self.window.bind('<Control-MouseWheel>', self._on_mouse_wheel_alpha)
+        # ESC：隐藏窗口
+        self.window.bind('<Escape>', lambda e: self.hide())
+        # Ctrl+O：切换原文显示
+        self.window.bind('<Control-o>', lambda e: self._toggle_original())
 
     def _on_mouse_wheel_alpha(self, event):
-        """
-        鼠标滚轮调整透明度
-
-        参数:
-            event: 鼠标事件
-        """
+        """鼠标滚轮调整透明度"""
         delta = 0.05 if event.delta > 0 else -0.05
-        new_alpha = max(0.3, min(1.0, self.alpha + delta))
-        self.alpha_scale.set(new_alpha)
+        new_alpha = max(0.5, min(1.0, self.alpha + delta))
+        self._set_alpha(new_alpha)
 
     def _on_window_resize(self, event):
-        """
-        窗口缩放事件处理 - 重新绘制字幕以适应新尺寸
-
-        参数:
-            event: 缩放事件
-        """
-        # 只处理窗口自身的缩放事件，忽略子组件的
+        """窗口缩放事件处理"""
         if event.widget == self.window:
-            # 延迟100ms后重绘，避免频繁重绘
             if hasattr(self, '_resize_timer'):
                 self.window.after_cancel(self._resize_timer)
             self._resize_timer = self.window.after(100, self._redraw_subtitles)
-
-            # 智能调整显示：当窗口高度小于200px时，减小原文区域权重
-            height = self.window.winfo_height()
-            if height < 200:
-                # 窗口太小时，翻译占更多空间（85%），原文缩小（15%）
-                subtitle_frame = self.translation_canvas.master
-                subtitle_frame.grid_rowconfigure(0, weight=85, minsize=100)
-                subtitle_frame.grid_rowconfigure(2, weight=15, minsize=30)
-            else:
-                # 正常大小时，恢复70/30比例
-                subtitle_frame = self.translation_canvas.master
-                subtitle_frame.grid_rowconfigure(0, weight=7, minsize=100)
-                subtitle_frame.grid_rowconfigure(2, weight=3, minsize=50)
 
     def _redraw_subtitles(self):
         """重新绘制字幕"""
@@ -392,13 +315,13 @@ class DesktopSubtitleWindow:
 
     def show(self):
         """显示窗口"""
-        self.window.deiconify()  # 显示窗口
-        self.window.lift()       # 提升到最前面
-        print("[INFO] 桌面字幕窗口已显示")
+        self.window.deiconify()
+        self.window.lift()
+        print("[INFO] 桌面字幕窗口已显示（YouTube风格）")
 
     def hide(self):
         """隐藏窗口"""
-        self.window.withdraw()   # 隐藏窗口
+        self.window.withdraw()
         print("[INFO] 桌面字幕窗口已隐藏")
 
     def destroy(self):
