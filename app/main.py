@@ -597,6 +597,9 @@ class SubtitleApp:
             original (str): 原文
             translation (str): 翻译
         """
+        # 调试日志
+        print(f"[GUI更新] 原文: {original[:50]}... | 翻译: {translation[:50]}...")
+
         # 更新原文区域
         self.original_text.insert(tk.END, original + "\n")
         self.original_text.see(tk.END)
