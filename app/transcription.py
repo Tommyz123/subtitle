@@ -134,8 +134,6 @@ class TranscriptionThread(threading.Thread):
         返回:
             str: 翻译文本，失败返回None
         """
-        print(f"[DEBUG] 开始翻译: '{text[:50]}...' 目标语言: {self.target_lang}")
-
         for attempt in range(self.max_retries):
             try:
                 # 使用用户选择的目标语言
@@ -143,7 +141,6 @@ class TranscriptionThread(threading.Thread):
                     text,
                     target_lang=self.target_lang  # 使用用户选择的目标语言
                 )
-                print(f"[DEBUG] DeepL返回: '{result.text[:50]}...'")
                 return result.text
 
             except Exception as e:
@@ -214,11 +211,7 @@ class TranscriptionThread(threading.Thread):
         translated_text = self.translate(original_text)
         deepl_time = time.time() - t2
 
-        # 调试日志
-        print(f"[DEBUG] 翻译结果: '{translated_text[:50] if translated_text else 'None'}...'")
-
         if not translated_text:
-            print("[ERROR] 翻译失败，跳过此音频块")
             return
 
         # 计算总耗时

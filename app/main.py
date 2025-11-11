@@ -601,30 +601,13 @@ class SubtitleApp:
             original (str): 原文
             translation (str): 翻译
         """
-        # 详细调试日志
-        print(f"[GUI更新] 原文长度: {len(original)} | 翻译长度: {len(translation)}")
-        print(f"[GUI更新] 原文内容: '{original}'")
-        print(f"[GUI更新] 翻译内容: '{translation}'")
-
-        # 验证文本框状态
-        print(f"[GUI状态] original_text存在: {self.original_text is not None}")
-        print(f"[GUI状态] translated_text存在: {self.translated_text is not None}")
-
         # 更新原文区域
         self.original_text.insert(tk.END, original + "\n")
         self.original_text.see(tk.END)
-        print(f"[GUI更新] ✓ 原文已插入到文本框")
 
         # 更新译文区域
         self.translated_text.insert(tk.END, translation + "\n")
         self.translated_text.see(tk.END)
-        print(f"[GUI更新] ✓ 翻译已插入到文本框")
-
-        # 验证文本框内容
-        original_content = self.original_text.get("1.0", tk.END)
-        translated_content = self.translated_text.get("1.0", tk.END)
-        print(f"[GUI验证] 原文框当前行数: {original_content.count(chr(10))}")
-        print(f"[GUI验证] 翻译框当前行数: {translated_content.count(chr(10))}")
 
         # 更新桌面字幕窗口
         if self.desktop_subtitle_window and self.desktop_subtitle_window.is_visible():
