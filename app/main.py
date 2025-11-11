@@ -695,6 +695,11 @@ class SubtitleApp:
             original (str): 原文
             translation (str): 翻译
         """
+        # 添加调试信息
+        print(f"[MAIN.PY] update_subtitle被调用:")
+        print(f"  - original: '{original}' (长度: {len(original) if original else 0})")
+        print(f"  - translation: '{translation}' (长度: {len(translation) if translation else 0})")
+
         # 更新原文区域
         self.original_text.insert(tk.END, original + "\n")
         self.original_text.see(tk.END)
@@ -705,6 +710,7 @@ class SubtitleApp:
 
         # 更新桌面字幕窗口
         if self.desktop_subtitle_window and self.desktop_subtitle_window.is_visible():
+            print(f"[MAIN.PY] 正在调用 desktop_subtitle_window.update_subtitle")
             self.desktop_subtitle_window.update_subtitle(original, translation)
 
         # P0修复: 使用锁保护SubtitleStorage并发访问
