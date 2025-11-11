@@ -468,7 +468,7 @@ class DesktopSubtitleWindow:
                 '#FFFFFF',      # 白色文字
                 '#000000',      # 黑色描边
                 bg_color='#000000',  # 黑色背景框
-                bg_alpha=0.75   # 75%不透明度
+                bg_alpha=0.5    # 50%不透明度（更透明，不遮挡画面）
             )
 
             # 绘制原文（灰色小字，次要内容）
@@ -501,7 +501,7 @@ class DesktopSubtitleWindow:
                     '#CCCCCC',      # 浅灰色文字
                     '#000000',      # 黑色描边
                     bg_color='#000000',  # 黑色背景框
-                    bg_alpha=0.65   # 65%不透明度（更透明）
+                    bg_alpha=0.4    # 40%不透明度（更透明，次要内容）
                 )
             else:
                 # 不显示原文时，设置最小高度并清空
