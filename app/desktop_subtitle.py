@@ -65,6 +65,9 @@ class DesktopSubtitleWindow:
         # 绑定快捷键
         self._bind_shortcuts()
 
+        # 绑定窗口缩放事件，确保字幕自适应
+        self.window.bind('<Configure>', self._on_window_resize)
+
     def _create_widgets(self):
         """创建窗口内部组件"""
         # 主容器（带圆角效果的内边距）
@@ -221,7 +224,7 @@ class DesktopSubtitleWindow:
 
     def _draw_text_with_outline(self, canvas, text, font_obj, text_color, outline_color):
         """
-        在Canvas上绘制带描边的文字
+        在Canvas上绘制带描边的文字（响应式自适应）
 
         参数:
             canvas: Canvas对象
@@ -233,13 +236,20 @@ class DesktopSubtitleWindow:
         # 清空canvas
         canvas.delete('all')
 
-        # 获取canvas尺寸
+        # 强制更新Canvas尺寸
         canvas.update_idletasks()
         width = canvas.winfo_width()
         height = canvas.winfo_height()
 
+        # 如果Canvas尺寸无效，跳过绘制
+        if width <= 1 or height <= 1:
+            return
+
         # 中心位置
         x, y = width // 2, height // 2
+
+        # 计算可用宽度（留出边距）
+        available_width = max(width - 60, 100)  # 最小100px
 
         # 绘制描边（在四个方向绘制黑色文字）
         offsets = [(-2, -2), (-2, 2), (2, -2), (2, 2), (-2, 0), (2, 0), (0, -2), (0, 2)]
@@ -249,8 +259,9 @@ class DesktopSubtitleWindow:
                 text=text,
                 font=font_obj,
                 fill=outline_color,
-                width=width - 40,
-                justify=tk.CENTER
+                width=available_width,
+                justify=tk.CENTER,
+                anchor=tk.CENTER
             )
 
         # 绘制主文字
@@ -259,8 +270,9 @@ class DesktopSubtitleWindow:
             text=text,
             font=font_obj,
             fill=text_color,
-            width=width - 40,
-            justify=tk.CENTER
+            width=available_width,
+            justify=tk.CENTER,
+            anchor=tk.CENTER
         )
 
     def update_subtitle(self, original, translation):
@@ -341,6 +353,25 @@ class DesktopSubtitleWindow:
         delta = 0.05 if event.delta > 0 else -0.05
         new_alpha = max(0.3, min(1.0, self.alpha + delta))
         self.alpha_scale.set(new_alpha)
+
+    def _on_window_resize(self, event):
+        """
+        窗口缩放事件处理 - 重新绘制字幕以适应新尺寸
+
+        参数:
+            event: 缩放事件
+        """
+        # 只处理窗口自身的缩放事件，忽略子组件的
+        if event.widget == self.window:
+            # 延迟100ms后重绘，避免频繁重绘
+            if hasattr(self, '_resize_timer'):
+                self.window.after_cancel(self._resize_timer)
+            self._resize_timer = self.window.after(100, self._redraw_subtitles)
+
+    def _redraw_subtitles(self):
+        """重新绘制字幕"""
+        if self.current_original or self.current_translation:
+            self.update_subtitle(self.current_original, self.current_translation)
 
     def show(self):
         """显示窗口"""
