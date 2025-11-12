@@ -1,8 +1,11 @@
 # 核心依赖
-openai>=1.0.0,<2.0.0          # OpenAI Whisper API 客户端
+openai>=1.0.0,<2.0.0          # OpenAI Whisper API 客户端（仅当 WHISPER_MODE=api 时需要）
 deepl>=1.16.0,<2.0.0          # DeepL 翻译 API 客户端
 pyaudio>=0.2.13               # 音频捕获
 python-dotenv>=1.0.0          # 环境变量管理
+
+# 本地 Whisper（仅当 WHISPER_MODE=local 时需要）
+faster-whisper>=1.0.0         # 本地 Whisper 模型（比 openai-whisper 快 4 倍）
 
 # VAD 和音频处理（阶段2）
 torch>=2.0.0,<3.0.0           # VAD 模型运行（CPU版本）

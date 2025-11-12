@@ -299,6 +299,29 @@ class SubtitleApp:
         )
         self.target_lang_combo.pack(side=tk.LEFT)
 
+        # Whisper 模式选择
+        whisper_mode_frame = tk.Frame(lang_frame, bg='#ffffff')
+        whisper_mode_frame.pack(side=tk.LEFT, padx=(20, 0))
+
+        tk.Label(
+            whisper_mode_frame,
+            text="⚡ Whisper:",
+            font=("Microsoft YaHei", 11),
+            bg='#ffffff',
+            fg='#424242'
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        self.whisper_mode_var = tk.StringVar(value="API（云端）")
+        self.whisper_mode_combo = ttk.Combobox(
+            whisper_mode_frame,
+            textvariable=self.whisper_mode_var,
+            values=["API（云端）", "本地模型"],
+            state="readonly",
+            width=12,
+            font=("Microsoft YaHei", 10),
+            style='Modern.TCombobox'
+        )
+        self.whisper_mode_combo.pack(side=tk.LEFT)
+
         # 桌面字幕开关
         self.desktop_subtitle_var = tk.BooleanVar(value=False)
         self.desktop_subtitle_check = ttk.Checkbutton(
@@ -511,19 +534,43 @@ class SubtitleApp:
         self.status_bar_label.pack(side=tk.LEFT, padx=20, pady=10)
 
     def start_capture(self):
-        """开始捕获音频 (阶段2: 支持VAD配置 + 语言选择)"""
+        """开始捕获音频 (阶段2: 支持VAD配置 + 语言选择 + Whisper模式选择)"""
         # 1. 读取API Keys
-        openai_key = os.getenv('OPENAI_API_KEY')
+        openai_key = os.getenv('OPENAI_API_KEY', '')
         deepl_key = os.getenv('DEEPL_API_KEY')
 
-        if not openai_key or not deepl_key:
-            print("[ERROR] 请在.env文件中配置API Keys")
-            print("[ERROR] 请确保.env文件中包含:")
-            print("[ERROR]   OPENAI_API_KEY=your_openai_key")
-            print("[ERROR]   DEEPL_API_KEY=your_deepl_key")
+        # 2. 获取用户选择的 Whisper 模式
+        whisper_mode_display = self.whisper_mode_var.get()
+        if whisper_mode_display == "API（云端）":
+            whisper_mode = "api"
+        elif whisper_mode_display == "本地模型":
+            whisper_mode = "local"
+        else:
+            whisper_mode = os.getenv('WHISPER_MODE', 'api').lower()
+
+        # 验证 API 模式下的必需配置
+        if whisper_mode == "api" and not openai_key:
+            print("[ERROR] API 模式需要配置 OPENAI_API_KEY")
+            print("[ERROR] 请在 .env 文件中添加: OPENAI_API_KEY=your_openai_key")
+            messagebox.showerror("配置错误", "API 模式需要配置 OPENAI_API_KEY\n请在 .env 文件中添加您的 OpenAI API Key")
             return
 
-        # 2. 获取用户选择的语言
+        if not deepl_key:
+            print("[ERROR] 请在.env文件中配置 DEEPL_API_KEY")
+            print("[ERROR] 请在 .env 文件中添加: DEEPL_API_KEY=your_deepl_key")
+            messagebox.showerror("配置错误", "需要配置 DEEPL_API_KEY\n请在 .env 文件中添加您的 DeepL API Key")
+            return
+
+        # 3. 读取本地 Whisper 配置（仅当使用本地模式时）
+        local_model = os.getenv('LOCAL_WHISPER_MODEL', 'small')
+        local_device = os.getenv('LOCAL_WHISPER_DEVICE', 'auto')
+        local_compute_type = os.getenv('LOCAL_WHISPER_COMPUTE_TYPE', 'float16')
+
+        print(f"[INFO] Whisper 模式: {whisper_mode_display} ({whisper_mode})")
+        if whisper_mode == "local":
+            print(f"[INFO] 本地模型配置: {local_model} (设备: {local_device}, 精度: {local_compute_type})")
+
+        # 4. 获取用户选择的语言
         source_lang_name = self.source_lang_var.get()
         target_lang_name = self.target_lang_var.get()
         source_lang_code = WHISPER_LANGUAGES[source_lang_name]
@@ -532,7 +579,7 @@ class SubtitleApp:
         print(f"[INFO] 源语言: {source_lang_name} ({source_lang_code})")
         print(f"[INFO] 目标语言: {target_lang_name} ({target_lang_code})")
 
-        # 3. P0修复: 配置验证支持多格式
+        # 5. P0修复: 配置验证支持多格式
         enable_vad_raw = os.getenv('ENABLE_VAD', 'true')
         vad_enabled = parse_bool_config(enable_vad_raw, default=True)
 
@@ -558,19 +605,34 @@ class SubtitleApp:
         self.audio_thread.daemon = True
         self.audio_thread.start()
 
-        # 6. 启动转录翻译线程 (阶段2: 传入audio_thread引用 + 语言参数)
-        self.transcription_thread = TranscriptionThread(
-            self.audio_queue,
-            self.stop_event,
-            self.on_subtitle_ready,
-            openai_key,
-            deepl_key,
-            source_lang=source_lang_code,  # ← 传递用户选择的源语言
-            target_lang=target_lang_code,  # ← 传递用户选择的目标语言
-            audio_thread=self.audio_thread  # ← 传递引用用于VAD检查
-        )
-        self.transcription_thread.daemon = True
-        self.transcription_thread.start()
+        # 6. 启动转录翻译线程 (阶段2: 传入audio_thread引用 + 语言参数 + Whisper模式)
+        try:
+            self.transcription_thread = TranscriptionThread(
+                self.audio_queue,
+                self.stop_event,
+                self.on_subtitle_ready,
+                openai_key,
+                deepl_key,
+                source_lang=source_lang_code,  # ← 传递用户选择的源语言
+                target_lang=target_lang_code,  # ← 传递用户选择的目标语言
+                audio_thread=self.audio_thread,  # ← 传递引用用于VAD检查
+                whisper_mode=whisper_mode,  # ← Whisper 模式（api 或 local）
+                local_model=local_model,  # ← 本地模型大小
+                local_device=local_device,  # ← 本地模型设备
+                local_compute_type=local_compute_type  # ← 本地模型精度
+            )
+            self.transcription_thread.daemon = True
+            self.transcription_thread.start()
+        except Exception as e:
+            print(f"[ERROR] 转录线程启动失败: {e}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("启动失败", f"转录线程启动失败:\n{str(e)}\n\n请检查配置和依赖库是否正确安装")
+            # 停止已启动的音频线程
+            self.stop_event.set()
+            if self.audio_thread:
+                self.audio_thread.join(timeout=2)
+            return
 
         # 7. 创建桌面字幕窗口（如果启用）
         if self.desktop_subtitle_var.get():

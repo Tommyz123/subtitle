@@ -1,11 +1,15 @@
 """
-转录翻译模块 - 阶段2优化版本
+转录翻译模块 - 支持双模式（API + 本地）
 
 职责:
 - 从队列获取音频块
-- 调用OpenAI Whisper API转录
-- 调用DeepL API翻译
+- 调用 Whisper 转录（支持 API 或本地模型）
+- 调用 DeepL API 翻译
 - 通过回调返回结果
+
+支持模式:
+- API 模式: OpenAI Whisper API（云端）
+- Local 模式: faster-whisper（本地，速度快 4 倍，零成本）
 
 阶段2新增:
 - API调用3次重试 + 指数退避
@@ -18,26 +22,46 @@ import queue
 import io
 import wave
 import time
-from openai import OpenAI
+import os
+import numpy as np
 import deepl
 from concurrent.futures import ThreadPoolExecutor
 
+# 条件导入：根据模式导入对应的库
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
+try:
+    from faster_whisper import WhisperModel
+    FASTER_WHISPER_AVAILABLE = True
+except ImportError:
+    FASTER_WHISPER_AVAILABLE = False
+
 
 class TranscriptionThread(threading.Thread):
-    """转录翻译线程 - 处理音频块并返回字幕 + 重试机制"""
+    """转录翻译线程 - 处理音频块并返回字幕 + 重试机制（支持双模式）"""
 
     def __init__(self, audio_queue, stop_event, callback, openai_key, deepl_key,
-                 source_lang="zh", target_lang="EN-US", audio_thread=None):
+                 source_lang="zh", target_lang="EN-US", audio_thread=None,
+                 whisper_mode="api", local_model="small", local_device="auto",
+                 local_compute_type="float16"):
         """
         参数:
             audio_queue (queue.Queue): 音频数据队列
             stop_event (threading.Event): 停止信号
             callback (callable): 回调函数 callback(original, translation)
-            openai_key (str): OpenAI API Key
+            openai_key (str): OpenAI API Key（whisper_mode=api 时需要）
             deepl_key (str): DeepL API Key
             source_lang (str): 源语言代码 (Whisper支持的语言代码)
             target_lang (str): 目标语言代码 (DeepL支持的语言代码)
             audio_thread (AudioCaptureThread): 音频捕获线程引用 (用于VAD检查)
+            whisper_mode (str): Whisper 模式 ('api' 或 'local')
+            local_model (str): 本地模型大小 (tiny/base/small/medium/large-v2/large-v3)
+            local_device (str): 本地模型设备 (auto/cuda/cpu)
+            local_compute_type (str): 本地模型计算精度 (int8/float16/float32)
         """
         super().__init__(daemon=True)
         self.audio_queue = audio_queue
@@ -49,8 +73,16 @@ class TranscriptionThread(threading.Thread):
         self.source_lang = source_lang
         self.target_lang = target_lang
 
-        # 初始化API客户端
-        self.openai_client = OpenAI(api_key=openai_key)
+        # Whisper 模式配置
+        self.whisper_mode = whisper_mode.lower()
+        self.local_model_name = local_model
+        self.local_device = local_device
+        self.local_compute_type = local_compute_type
+
+        # 初始化 Whisper 后端
+        self._init_whisper_backend(openai_key)
+
+        # 初始化 DeepL API 客户端
         self.deepl_translator = deepl.Translator(deepl_key)
 
         # 方案U优化: DeepL连接预热，消除冷启动延迟
@@ -68,16 +100,84 @@ class TranscriptionThread(threading.Thread):
         # max_workers=6: 最多6个API并发请求（处理能力翻倍）
         self.executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="APIWorker")
 
+    def _init_whisper_backend(self, openai_key):
+        """初始化 Whisper 后端（API 或本地模型）"""
+        if self.whisper_mode == "api":
+            # API 模式
+            if not OPENAI_AVAILABLE:
+                raise ImportError("OpenAI 库未安装，请运行: pip install openai")
+            if not openai_key:
+                raise ValueError("API 模式需要提供 OPENAI_API_KEY")
+
+            self.openai_client = OpenAI(api_key=openai_key)
+            self.local_model = None
+            print(f"[INFO] Whisper 模式: API (云端)")
+
+        elif self.whisper_mode == "local":
+            # 本地模式
+            if not FASTER_WHISPER_AVAILABLE:
+                raise ImportError("faster-whisper 库未安装，请运行: pip install faster-whisper")
+
+            # 设备检测
+            device = self._detect_device() if self.local_device == "auto" else self.local_device
+
+            # CPU 模式下强制使用 int8
+            compute_type = self.local_compute_type
+            if device == "cpu":
+                compute_type = "int8"
+                print(f"[INFO] CPU 模式下自动使用 int8 量化以提升速度")
+
+            print(f"[INFO] Whisper 模式: 本地")
+            print(f"[INFO] 正在加载模型: {self.local_model_name} (设备: {device}, 精度: {compute_type})")
+            print(f"[INFO] 首次加载需要下载模型，请稍候...")
+
+            try:
+                self.local_model = WhisperModel(
+                    self.local_model_name,
+                    device=device,
+                    compute_type=compute_type
+                )
+                print(f"[INFO] 本地 Whisper 模型加载成功")
+            except Exception as e:
+                print(f"[ERROR] 本地模型加载失败: {e}")
+                raise
+
+            self.openai_client = None
+        else:
+            raise ValueError(f"不支持的 Whisper 模式: {self.whisper_mode}，请使用 'api' 或 'local'")
+
+    def _detect_device(self):
+        """自动检测可用设备（GPU 优先）"""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                print(f"[INFO] 检测到 CUDA GPU: {torch.cuda.get_device_name(0)}")
+                return "cuda"
+        except:
+            pass
+
+        print(f"[INFO] 未检测到 GPU，将使用 CPU")
+        return "cpu"
+
     def transcribe(self, audio_data):
         """
-        调用Whisper API转录 (阶段2: 3次重试 + 指数退避)
+        调用 Whisper 转录（支持 API 或本地模型，带重试机制）
 
         参数:
-            audio_data (bytes): 48kHz立体声音频数据
+            audio_data (bytes): 16kHz 单声道音频数据
 
         返回:
-            str: 转录文本，失败返回None
+            str: 转录文本，失败返回 None
         """
+        if self.whisper_mode == "api":
+            return self._transcribe_api(audio_data)
+        elif self.whisper_mode == "local":
+            return self._transcribe_local(audio_data)
+        else:
+            raise ValueError(f"未知的 Whisper 模式: {self.whisper_mode}")
+
+    def _transcribe_api(self, audio_data):
+        """使用 OpenAI Whisper API 转录"""
         # 1. 转换为WAV格式
         audio_file = io.BytesIO()
         with wave.open(audio_file, 'wb') as wf:
@@ -105,7 +205,7 @@ class TranscriptionThread(threading.Thread):
                 )
 
                 # 调试日志：验证转录结果
-                print(f"[DEBUG] Whisper转录: '{response[:50]}...' (长度: {len(response)})")
+                print(f"[DEBUG] Whisper API 转录: '{response[:50]}...' (长度: {len(response)})")
 
                 return response  # 直接返回字符串
 
@@ -123,6 +223,37 @@ class TranscriptionThread(threading.Thread):
                 else:
                     print(f"[ERROR] Whisper API调用失败 {self.max_retries} 次,放弃该音频块")
                     return None
+
+    def _transcribe_local(self, audio_data):
+        """使用本地 faster-whisper 模型转录"""
+        try:
+            # 1. 将 bytes 转换为 numpy array
+            audio_np = np.frombuffer(audio_data, dtype=np.int16)
+
+            # 2. 归一化到 float32 [-1.0, 1.0]
+            audio_float32 = audio_np.astype(np.float32) / 32768.0
+
+            # 3. 调用本地模型（faster-whisper 直接接受 numpy array）
+            segments, info = self.local_model.transcribe(
+                audio_float32,
+                language=self.source_lang,
+                beam_size=5,  # 平衡准确率和速度
+                vad_filter=False,  # 我们已经有自己的 VAD
+                without_timestamps=True  # 不需要时间戳，提升速度
+            )
+
+            # 4. 合并所有片段
+            text = " ".join([segment.text for segment in segments])
+
+            # 调试日志
+            print(f"[DEBUG] 本地 Whisper 转录: '{text[:50]}...' (长度: {len(text)})")
+            print(f"[DEBUG] 检测语言: {info.language} (概率: {info.language_probability:.2f})")
+
+            return text.strip()
+
+        except Exception as e:
+            print(f"[ERROR] 本地 Whisper 转录失败: {e}")
+            return None
 
     def translate(self, text):
         """
