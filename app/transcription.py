@@ -30,9 +30,12 @@ from concurrent.futures import ThreadPoolExecutor
 try:
     from .local_whisper import LocalWhisperTranscriber
     LOCAL_WHISPER_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     LOCAL_WHISPER_AVAILABLE = False
-    print("[WARNING] faster-whisper 未安装，本地模式不可用")
+    print(f"[WARNING] 本地模式不可用，导入错误详情: {e}")
+    print("[INFO] 如需使用本地模式，请确保已安装: pip install faster-whisper")
+    import traceback
+    traceback.print_exc()
 
 
 class TranscriptionThread(threading.Thread):
