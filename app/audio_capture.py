@@ -293,8 +293,33 @@ class AudioCaptureThread(threading.Thread):
             # 使用VAD检测
             if self.vad_iterator:
                 speech_dict = self.vad_iterator(audio_float, return_seconds=False)
-                # None表示语音继续, 有dict表示检测到结束
-                return speech_dict is None
+
+                # Silero VAD返回值:
+                # - None: 语音继续中（有语音）
+                # - {'start': xxx}: 检测到语音开始（有语音）
+                # - {'end': xxx}: 检测到语音结束（静音）
+
+                # 调试日志（每100次打印一次，避免刷屏）
+                if hasattr(self, '_vad_debug_count'):
+                    self._vad_debug_count += 1
+                else:
+                    self._vad_debug_count = 0
+
+                if self._vad_debug_count % 100 == 0:
+                    print(f"[VAD-DEBUG] speech_dict={speech_dict}, is_speaking={self.is_speaking}")
+
+                # 判断逻辑:
+                # 1. None = 语音继续 → 返回True（有语音）
+                # 2. {'start': xxx} = 语音开始 → 返回True（有语音）
+                # 3. {'end': xxx} = 语音结束 → 返回False（静音）
+                if speech_dict is None:
+                    return True  # 语音继续中
+                elif 'start' in speech_dict:
+                    return True  # 检测到语音开始
+                elif 'end' in speech_dict:
+                    return False  # 检测到语音结束（静音）
+                else:
+                    return True  # 默认认为有语音
 
             return False
 

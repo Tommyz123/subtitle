@@ -538,6 +538,9 @@ class DesktopSubtitleWindow:
                 # 动态调整原文Canvas高度
                 self.original_canvas.config(height=required_height)
 
+                # 强制刷新Canvas尺寸（修复1px bug）
+                self.original_canvas.update_idletasks()
+
                 # 绘制原文（更透明的背景）
                 self._draw_text_with_outline(
                     self.original_canvas,
