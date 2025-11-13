@@ -23,13 +23,14 @@ import numpy as np
 class AudioCaptureThread(threading.Thread):
     """音频捕获线程 - 从VB-Cable捕获音频并分块 + VAD检测"""
 
-    def __init__(self, audio_queue, stop_event, enable_vad=False, enable_playback=True):
+    def __init__(self, audio_queue, stop_event, enable_vad=False, enable_playback=False):
         """
         参数:
             audio_queue (queue.Queue): 音频数据队列
             stop_event (threading.Event): 停止信号
             enable_vad (bool): 是否启用VAD检测, 默认False
-            enable_playback (bool): 是否启用音频播放, 默认True（低延迟播放，约30ms）
+            enable_playback (bool): 是否启用音频播放, 默认False
+                                   注意：不要与Windows"侦听此设备"同时使用
         """
         super().__init__(daemon=True)
         self.audio_queue = audio_queue
