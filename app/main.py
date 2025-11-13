@@ -309,6 +309,98 @@ class SubtitleApp:
         )
         self.desktop_subtitle_check.pack(side=tk.LEFT, padx=(20, 0))
 
+        # === 转录模式选择区域（新增卡片）===
+        model_card = tk.Frame(card_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
+        model_card.pack(fill=tk.X, pady=(10, 0))
+
+        model_frame = tk.Frame(model_card, bg='#ffffff')
+        model_frame.pack(fill=tk.X, padx=20, pady=15)
+
+        # 标题
+        tk.Label(
+            model_frame,
+            text="🤖 转录模式",
+            font=("Microsoft YaHei", 11, 'bold'),
+            bg='#ffffff',
+            fg='#1976d2'
+        ).pack(anchor=tk.W)
+
+        # 模式选择区域
+        mode_selection_frame = tk.Frame(model_frame, bg='#ffffff')
+        mode_selection_frame.pack(fill=tk.X, pady=(10, 0))
+
+        # 转录模式单选框
+        self.transcription_mode_var = tk.StringVar(value="api")
+
+        mode_radio_frame = tk.Frame(mode_selection_frame, bg='#ffffff')
+        mode_radio_frame.pack(side=tk.LEFT)
+
+        # API 模式
+        self.api_radio = tk.Radiobutton(
+            mode_radio_frame,
+            text="☁️  API模式 (在线)",
+            variable=self.transcription_mode_var,
+            value="api",
+            font=("Microsoft YaHei", 10),
+            bg='#ffffff',
+            fg='#424242',
+            selectcolor='#ffffff',
+            activebackground='#ffffff',
+            command=self.on_mode_change
+        )
+        self.api_radio.pack(side=tk.LEFT, padx=(0, 20))
+
+        # 本地模式
+        self.local_radio = tk.Radiobutton(
+            mode_radio_frame,
+            text="💻  本地模式 (离线)",
+            variable=self.transcription_mode_var,
+            value="local",
+            font=("Microsoft YaHei", 10),
+            bg='#ffffff',
+            fg='#424242',
+            selectcolor='#ffffff',
+            activebackground='#ffffff',
+            command=self.on_mode_change
+        )
+        self.local_radio.pack(side=tk.LEFT)
+
+        # 本地模型大小选择
+        model_size_frame = tk.Frame(mode_selection_frame, bg='#ffffff')
+        model_size_frame.pack(side=tk.LEFT, padx=(30, 0))
+
+        tk.Label(
+            model_size_frame,
+            text="模型大小:",
+            font=("Microsoft YaHei", 10),
+            bg='#ffffff',
+            fg='#424242'
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        self.model_size_var = tk.StringVar(value="base")
+        self.model_size_combo = ttk.Combobox(
+            model_size_frame,
+            textvariable=self.model_size_var,
+            values=["tiny", "base", "small", "medium", "large-v2"],
+            state="readonly",
+            width=12,
+            font=("Microsoft YaHei", 9),
+            style='Modern.TCombobox'
+        )
+        self.model_size_combo.pack(side=tk.LEFT)
+        self.model_size_combo.config(state=tk.DISABLED)  # 默认禁用
+
+        # 提示信息标签
+        self.mode_info_label = tk.Label(
+            model_frame,
+            text="💡 API模式: 需要OpenAI API Key，在线调用，按量付费",
+            font=("Microsoft YaHei", 9),
+            bg='#ffffff',
+            fg='#757575',
+            justify=tk.LEFT
+        )
+        self.mode_info_label.pack(anchor=tk.W, pady=(8, 0))
+
         # === 控制按钮区域（卡片样式）===
         control_card = tk.Frame(main_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
         control_card.pack(fill=tk.X, padx=20, pady=(0, 20))
@@ -510,20 +602,70 @@ class SubtitleApp:
         )
         self.status_bar_label.pack(side=tk.LEFT, padx=20, pady=10)
 
+    def on_mode_change(self):
+        """处理转录模式切换"""
+        mode = self.transcription_mode_var.get()
+
+        if mode == "local":
+            # 启用本地模型大小选择
+            self.model_size_combo.config(state="readonly")
+
+            # 更新提示信息
+            model_size = self.model_size_var.get()
+            model_info = {
+                "tiny": "39M参数, 速度最快, 精度较低, 需要~1GB显存",
+                "base": "74M参数, 速度快, 精度适中, 需要~1GB显存 (推荐)",
+                "small": "244M参数, 速度中等, 精度良好, 需要~2GB显存",
+                "medium": "769M参数, 速度较慢, 精度很好, 需要~5GB显存",
+                "large-v2": "1550M参数, 速度最慢, 精度最佳, 需要~10GB显存"
+            }
+            info_text = f"💡 本地模式: 离线运行, 免费使用\n   模型: {model_size} ({model_info.get(model_size, '未知')})"
+            self.mode_info_label.config(text=info_text)
+
+        else:  # api
+            # 禁用本地模型大小选择
+            self.model_size_combo.config(state=tk.DISABLED)
+
+            # 更新提示信息
+            self.mode_info_label.config(
+                text="💡 API模式: 需要OpenAI API Key，在线调用，按量付费"
+            )
+
     def start_capture(self):
-        """开始捕获音频 (阶段2: 支持VAD配置 + 语言选择)"""
-        # 1. 读取API Keys
+        """开始捕获音频 (支持VAD配置 + 语言选择 + 本地/API模式)"""
+        # 1. 获取转录模式和模型大小
+        transcription_mode = self.transcription_mode_var.get()
+        local_model_size = self.model_size_var.get()
+
+        print(f"\n{'='*60}")
+        print(f"[INFO] 启动转录模式: {transcription_mode.upper()}")
+        if transcription_mode == "local":
+            print(f"[INFO] 本地模型大小: {local_model_size}")
+        print(f"{'='*60}\n")
+
+        # 2. 读取API Keys (根据模式判断需要哪些Key)
         openai_key = os.getenv('OPENAI_API_KEY')
         deepl_key = os.getenv('DEEPL_API_KEY')
 
-        if not openai_key or not deepl_key:
-            print("[ERROR] 请在.env文件中配置API Keys")
-            print("[ERROR] 请确保.env文件中包含:")
-            print("[ERROR]   OPENAI_API_KEY=your_openai_key")
-            print("[ERROR]   DEEPL_API_KEY=your_deepl_key")
+        # API模式需要 OpenAI Key
+        if transcription_mode == "api" and not openai_key:
+            messagebox.showerror(
+                "配置错误",
+                "API模式需要配置 OpenAI API Key\n\n请在 .env 文件中添加:\nOPENAI_API_KEY=your_key_here"
+            )
+            print("[ERROR] API模式需要配置 OPENAI_API_KEY")
             return
 
-        # 2. 获取用户选择的语言
+        # 两种模式都需要 DeepL Key (用于翻译)
+        if not deepl_key:
+            messagebox.showerror(
+                "配置错误",
+                "需要配置 DeepL API Key 用于翻译\n\n请在 .env 文件中添加:\nDEEPL_API_KEY=your_key_here"
+            )
+            print("[ERROR] 请在.env文件中配置 DEEPL_API_KEY")
+            return
+
+        # 3. 获取用户选择的语言
         source_lang_name = self.source_lang_var.get()
         target_lang_name = self.target_lang_var.get()
         source_lang_code = WHISPER_LANGUAGES[source_lang_name]
@@ -558,19 +700,30 @@ class SubtitleApp:
         self.audio_thread.daemon = True
         self.audio_thread.start()
 
-        # 6. 启动转录翻译线程 (阶段2: 传入audio_thread引用 + 语言参数)
-        self.transcription_thread = TranscriptionThread(
-            self.audio_queue,
-            self.stop_event,
-            self.on_subtitle_ready,
-            openai_key,
-            deepl_key,
-            source_lang=source_lang_code,  # ← 传递用户选择的源语言
-            target_lang=target_lang_code,  # ← 传递用户选择的目标语言
-            audio_thread=self.audio_thread  # ← 传递引用用于VAD检查
-        )
-        self.transcription_thread.daemon = True
-        self.transcription_thread.start()
+        # 6. 启动转录翻译线程 (支持本地/API模式)
+        try:
+            self.transcription_thread = TranscriptionThread(
+                self.audio_queue,
+                self.stop_event,
+                self.on_subtitle_ready,
+                openai_key,
+                deepl_key,
+                source_lang=source_lang_code,  # ← 传递用户选择的源语言
+                target_lang=target_lang_code,  # ← 传递用户选择的目标语言
+                audio_thread=self.audio_thread,  # ← 传递引用用于VAD检查
+                mode=transcription_mode,  # ← 转录模式 (local/api)
+                local_model_size=local_model_size  # ← 本地模型大小
+            )
+            self.transcription_thread.daemon = True
+            self.transcription_thread.start()
+        except Exception as e:
+            messagebox.showerror(
+                "启动失败",
+                f"转录线程启动失败:\n{str(e)}\n\n请检查配置和依赖是否正确安装"
+            )
+            print(f"[ERROR] 转录线程启动失败: {e}")
+            self.stop_event.set()
+            return
 
         # 7. 创建桌面字幕窗口（如果启用）
         if self.desktop_subtitle_var.get():
