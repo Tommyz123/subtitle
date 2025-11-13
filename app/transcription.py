@@ -46,13 +46,28 @@ except ImportError:
         import traceback
         traceback.print_exc()
 
+# 导入本地翻译模块（可选，用于加速本地模式）
+LOCAL_TRANSLATOR_AVAILABLE = False
+LocalTranslator = None
+
+try:
+    from .local_translator import LocalTranslator
+    LOCAL_TRANSLATOR_AVAILABLE = True
+except ImportError:
+    try:
+        from local_translator import LocalTranslator
+        LOCAL_TRANSLATOR_AVAILABLE = True
+    except ImportError:
+        LOCAL_TRANSLATOR_AVAILABLE = False
+        print("[INFO] 本地翻译不可用（将使用 DeepL），如需安装: pip install transformers sentencepiece")
+
 
 class TranscriptionThread(threading.Thread):
     """转录翻译线程 - 处理音频块并返回字幕 + 重试机制"""
 
     def __init__(self, audio_queue, stop_event, callback, openai_key, deepl_key,
                  source_lang="zh", target_lang="EN-US", audio_thread=None,
-                 mode="api", local_model_size="base"):
+                 mode="api", local_model_size="base", use_local_translation=True):
         """
         参数:
             audio_queue (queue.Queue): 音频数据队列
@@ -65,6 +80,7 @@ class TranscriptionThread(threading.Thread):
             audio_thread (AudioCaptureThread): 音频捕获线程引用 (用于VAD检查)
             mode (str): 转录模式 - "local" (本地模型) 或 "api" (OpenAI API)
             local_model_size (str): 本地模型大小 - tiny, base, small, medium, large-v2
+            use_local_translation (bool): 是否使用本地翻译（仅local模式，更快）
         """
         super().__init__(daemon=True)
         self.audio_queue = audio_queue
@@ -79,6 +95,7 @@ class TranscriptionThread(threading.Thread):
         # 模式配置
         self.mode = mode
         self.local_model_size = local_model_size
+        self.use_local_translation = use_local_translation and (mode == "local")  # 仅本地模式可用
 
         print(f"\n[INFO] 转录模式: {mode.upper()}")
 
@@ -109,15 +126,37 @@ class TranscriptionThread(threading.Thread):
         else:
             raise ValueError(f"不支持的模式: {mode}，请选择 'local' 或 'api'")
 
-        # 初始化 DeepL 翻译器
-        self.deepl_translator = deepl.Translator(deepl_key)
+        # 初始化翻译器（根据模式和配置）
+        self.local_translator = None
+        self.deepl_translator = None
 
-        # 方案U优化: DeepL连接预热，消除冷启动延迟
-        try:
-            self.deepl_translator.translate_text(".", target_lang="EN-US")
-            print("[INFO] DeepL连接预热完成")
-        except:
-            pass  # 忽略预热失败
+        if self.use_local_translation and LOCAL_TRANSLATOR_AVAILABLE:
+            # 使用本地翻译模型（更快，完全离线）
+            print(f"[INFO] 正在初始化本地翻译模型...")
+            try:
+                self.local_translator = LocalTranslator(
+                    model_size="distilled-600M",  # 轻量级模型
+                    device="auto"
+                )
+                print("[SUCCESS] 本地翻译模型初始化完成（速度< 100ms）\n")
+            except Exception as e:
+                print(f"[WARNING] 本地翻译初始化失败: {e}")
+                print("[INFO] 将回退到 DeepL API")
+                self.use_local_translation = False
+
+        if not self.use_local_translation:
+            # 使用 DeepL API 翻译
+            if not deepl_key:
+                raise ValueError("DeepL API Key 是必需的（本地翻译不可用或已禁用）")
+
+            self.deepl_translator = deepl.Translator(deepl_key)
+
+            # 方案U优化: DeepL连接预热，消除冷启动延迟
+            try:
+                self.deepl_translator.translate_text(".", target_lang="EN-US")
+                print("[INFO] DeepL API 已配置并预热完成\n")
+            except:
+                print("[INFO] DeepL API 已配置\n")
 
         # 重试配置
         self.max_retries = 3
@@ -208,7 +247,7 @@ class TranscriptionThread(threading.Thread):
 
     def translate(self, text):
         """
-        调用DeepL API翻译 (阶段2: 3次重试 + 指数退避)
+        翻译文本 (支持本地模型和DeepL API)
 
         参数:
             text (str): 原文
@@ -216,6 +255,26 @@ class TranscriptionThread(threading.Thread):
         返回:
             str: 翻译文本，失败返回None
         """
+        # 使用本地翻译模型（仅本地模式，速度快 < 100ms）
+        if self.local_translator:
+            try:
+                # 转换语言代码：DeepL格式(EN-US, ZH) -> NLLB格式(en, zh)
+                target_lang_code = self.target_lang.split('-')[0].lower()  # EN-US -> en
+                source_lang_code = self.source_lang.lower()  # zh -> zh
+
+                result = self.local_translator.translate(
+                    text,
+                    source_lang=source_lang_code,
+                    target_lang=target_lang_code
+                )
+                return result
+
+            except Exception as e:
+                print(f"[ERROR] 本地翻译失败: {e}")
+                print(f"[INFO] 回退到 DeepL API")
+                # 继续执行DeepL翻译作为回退
+
+        # 使用 DeepL API 翻译 (带重试机制)
         for attempt in range(self.max_retries):
             try:
                 # 使用用户选择的目标语言

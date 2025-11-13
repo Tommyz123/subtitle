@@ -656,8 +656,13 @@ class SubtitleApp:
             print("[ERROR] API模式需要配置 OPENAI_API_KEY")
             return
 
-        # 两种模式都需要 DeepL Key (用于翻译)
-        if not deepl_key:
+        # DeepL Key检查 (本地模式+本地翻译时可选)
+        use_local_translation_raw = os.getenv('USE_LOCAL_TRANSLATION', 'true')
+        use_local_translation = parse_bool_config(use_local_translation_raw, default=True)
+
+        # 只有在非本地翻译时才需要DeepL Key
+        need_deepl = transcription_mode == "api" or not use_local_translation
+        if need_deepl and not deepl_key:
             messagebox.showerror(
                 "配置错误",
                 "需要配置 DeepL API Key 用于翻译\n\n请在 .env 文件中添加:\nDEEPL_API_KEY=your_key_here"
@@ -679,6 +684,14 @@ class SubtitleApp:
         vad_enabled = parse_bool_config(enable_vad_raw, default=True)
 
         print(f"[INFO] VAD功能: {'启用' if vad_enabled else '禁用'}")
+
+        # 显示翻译方式信息
+        if transcription_mode == "local" and use_local_translation:
+            print(f"[INFO] 本地翻译: 启用 (NLLB模型, 速度 < 100ms)")
+        elif transcription_mode == "local":
+            print(f"[INFO] 本地翻译: 禁用 (使用 DeepL API)")
+        else:
+            print(f"[INFO] 翻译方式: DeepL API")
 
         # 3. 清除停止信号
         self.stop_event.clear()
@@ -717,7 +730,8 @@ class SubtitleApp:
                 target_lang=target_lang_code,  # ← 传递用户选择的目标语言
                 audio_thread=self.audio_thread,  # ← 传递引用用于VAD检查
                 mode=transcription_mode,  # ← 转录模式 (local/api)
-                local_model_size=local_model_size  # ← 本地模型大小
+                local_model_size=local_model_size,  # ← 本地模型大小
+                use_local_translation=use_local_translation  # ← 是否使用本地翻译
             )
             self.transcription_thread.daemon = True
             self.transcription_thread.start()
