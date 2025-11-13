@@ -23,13 +23,13 @@ import numpy as np
 class AudioCaptureThread(threading.Thread):
     """音频捕获线程 - 从VB-Cable捕获音频并分块 + VAD检测"""
 
-    def __init__(self, audio_queue, stop_event, enable_vad=False, enable_playback=False):
+    def __init__(self, audio_queue, stop_event, enable_vad=False, enable_playback=True):
         """
         参数:
             audio_queue (queue.Queue): 音频数据队列
             stop_event (threading.Event): 停止信号
             enable_vad (bool): 是否启用VAD检测, 默认False
-            enable_playback (bool): 是否启用音频播放, 默认False（避免回声，推荐用Windows侦听功能）
+            enable_playback (bool): 是否启用音频播放, 默认True（低延迟播放，约30ms）
         """
         super().__init__(daemon=True)
         self.audio_queue = audio_queue
@@ -270,12 +270,17 @@ class AudioCaptureThread(threading.Thread):
             # 3. 打开音频播放流（默认设备）- 解决VB-CABLE无声问题
             if self.enable_playback:
                 try:
+                    # 优化：使用更小的缓冲区降低播放延迟
+                    # CHUNK=1024 @ 16kHz = ~64ms延迟
+                    # 减小到 512 = ~32ms延迟（几乎无感）
+                    playback_chunk = 512  # 更小的缓冲区，更低延迟
+
                     playback_stream = audio.open(
                         format=self.FORMAT,
                         channels=self.CHANNELS,
                         rate=self.RATE,
                         output=True,
-                        frames_per_buffer=self.CHUNK
+                        frames_per_buffer=playback_chunk  # 使用更小的缓冲区
                     )
                     print("[INFO] 音频播放已启用（解决VB-CABLE无声问题）")
                 except Exception as e:

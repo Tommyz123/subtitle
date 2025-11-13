@@ -692,8 +692,9 @@ class SubtitleApp:
         self.translated_text.delete(1.0, tk.END)
 
         # 5. 启动音频捕获线程 (支持VAD + 音频播放)
-        # 音频播放默认禁用，避免回声问题（推荐使用Windows"侦听此设备"功能）
-        enable_playback = parse_bool_config(os.getenv('ENABLE_PLAYBACK', 'false'), default=False)
+        # 音频播放默认启用（优化后延迟约30ms，几乎无感）
+        # 注意：不要同时启用 Windows "侦听此设备"，会导致回声
+        enable_playback = parse_bool_config(os.getenv('ENABLE_PLAYBACK', 'true'), default=True)
 
         self.audio_thread = AudioCaptureThread(
             self.audio_queue,
