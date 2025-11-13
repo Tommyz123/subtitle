@@ -123,6 +123,40 @@ class AudioCaptureThread(threading.Thread):
 
         return None
 
+    def find_physical_playback_device(self, audio):
+        """
+        查找物理播放设备（排除虚拟设备）
+
+        返回:
+            int: 设备索引，未找到返回None（将使用默认设备）
+        """
+        # 需要排除的虚拟设备关键词
+        virtual_keywords = ['cable', 'virtual', 'voicemeeter', 'vb-audio', 'loopback']
+
+        default_output = audio.get_default_output_device_info()
+
+        for i in range(audio.get_device_count()):
+            info = audio.get_device_info_by_index(i)
+
+            # 必须是输出设备
+            if info['maxOutputChannels'] == 0:
+                continue
+
+            device_name_lower = info['name'].lower()
+
+            # 排除虚拟设备
+            is_virtual = any(keyword in device_name_lower for keyword in virtual_keywords)
+            if is_virtual:
+                continue
+
+            # 找到物理设备
+            print(f"[INFO] 找到物理播放设备: {info['name']} (索引: {i})")
+            return i
+
+        # 如果没找到物理设备，返回None（会使用默认设备）
+        print(f"[WARNING] 未找到物理播放设备，将使用默认设备: {default_output['name']}")
+        return None
+
     def capture_chunk(self, stream, playback_stream=None):
         """
         捕获固定5秒的音频块，同时播放（如果启用）
@@ -267,22 +301,27 @@ class AudioCaptureThread(threading.Thread):
                 frames_per_buffer=self.CHUNK
             )
 
-            # 3. 打开音频播放流（默认设备）- 解决VB-CABLE无声问题
+            # 3. 打开音频播放流（物理设备）- 解决VB-CABLE无声问题
             if self.enable_playback:
                 try:
+                    # 查找物理播放设备（避免音频循环）
+                    playback_device_index = self.find_physical_playback_device(audio)
+
                     # 优化：使用更小的缓冲区降低播放延迟
                     # CHUNK=1024 @ 16kHz = ~64ms延迟
                     # 减小到 512 = ~32ms延迟（几乎无感）
                     playback_chunk = 512  # 更小的缓冲区，更低延迟
 
+                    # 明确指定输出设备，避免输出到 CABLE Input 导致音频循环
                     playback_stream = audio.open(
                         format=self.FORMAT,
                         channels=self.CHANNELS,
                         rate=self.RATE,
                         output=True,
+                        output_device_index=playback_device_index,  # 指定物理设备
                         frames_per_buffer=playback_chunk  # 使用更小的缓冲区
                     )
-                    print("[INFO] 音频播放已启用（解决VB-CABLE无声问题）")
+                    print("[INFO] 音频播放已启用（输出到物理设备，避免音频循环）")
                 except Exception as e:
                     print(f"[WARNING] 无法打开播放流: {e}")
                     print("[WARNING] 将继续捕获但不播放音频")
