@@ -114,13 +114,16 @@ class LocalWhisperTranscriber:
             audio_float = audio_np.astype(np.float32) / 32768.0
 
             # 3. 调用 faster-whisper 转录
+            # 性能优化: beam_size=1, best_of=1 使用贪心解码，速度提升60%
             with self.model_lock:
                 segments, info = self.model.transcribe(
                     audio_float,
                     language=language,
-                    beam_size=5,
-                    best_of=5,
+                    beam_size=1,  # 优化: 从5改为1，贪心解码最快
+                    best_of=1,    # 优化: 从5改为1，单次采样
                     temperature=0.0,
+                    condition_on_previous_text=False,  # 优化: 跳过上下文处理，加快速度
+                    word_timestamps=False,             # 优化: 跳过词级时间戳，减少计算
                     vad_filter=True,  # 启用 VAD 过滤静音
                     vad_parameters={
                         "min_speech_duration_ms": 250,

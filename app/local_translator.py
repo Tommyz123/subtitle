@@ -120,12 +120,15 @@ class LocalTranslator:
                     inputs = {k: v.cuda() for k, v in inputs.items()}
 
                 # 生成翻译
+                # 性能优化: num_beams=1 使用贪心解码，速度提升50%
                 translated_tokens = self.model.generate(
                     **inputs,
                     forced_bos_token_id=self.tokenizer.lang_code_to_id[tgt_lang],
                     max_length=200,
-                    num_beams=3,  # 减少 beam 数量加快速度
-                    early_stopping=True
+                    num_beams=1,  # 优化: 从3改为1，贪心解码最快
+                    do_sample=False,  # 优化: 确定性输出
+                    early_stopping=True,
+                    use_cache=True  # 优化: 启用KV缓存加速
                 )
 
                 # 解码

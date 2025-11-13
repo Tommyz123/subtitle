@@ -704,16 +704,25 @@ class SubtitleApp:
         self.original_text.delete(1.0, tk.END)
         self.translated_text.delete(1.0, tk.END)
 
-        # 5. 启动音频捕获线程 (支持VAD + 音频播放)
+        # 5. 启动音频捕获线程 (支持VAD + 音频播放 + 智能分段)
         # 音频播放默认禁用（避免与Windows"侦听此设备"冲突导致回声）
         # 如需使用程序内播放，请在.env中设置 ENABLE_PLAYBACK=true 并关闭Windows侦听
         enable_playback = parse_bool_config(os.getenv('ENABLE_PLAYBACK', 'false'), default=False)
+
+        # 智能分段配置（本地模式推荐启用）
+        enable_smart_segmentation = parse_bool_config(os.getenv('ENABLE_SMART_SEGMENTATION', 'false'), default=False)
+
+        # 本地模式自动启用智能分段（如果环境变量未明确禁用）
+        if transcription_mode == "local" and os.getenv('ENABLE_SMART_SEGMENTATION') is None:
+            enable_smart_segmentation = True
+            print(f"[INFO] 本地模式自动启用智能分段（根据说话节奏动态切分）")
 
         self.audio_thread = AudioCaptureThread(
             self.audio_queue,
             self.stop_event,
             enable_vad=vad_enabled,
-            enable_playback=enable_playback  # 解决VB-CABLE无声问题
+            enable_playback=enable_playback,  # 解决VB-CABLE无声问题
+            enable_smart_segmentation=enable_smart_segmentation  # 智能分段
         )
         self.audio_thread.daemon = True
         self.audio_thread.start()
