@@ -367,6 +367,7 @@ class AudioCaptureThread(threading.Thread):
                             self._flush_speech_buffer()
                     else:
                         # 一直静音，继续等待
+                        pass
 
                 # 防止语音段过长（超过最大时长强制切分）
                 buffer_duration_ms = len(self.speech_buffer) * 100
