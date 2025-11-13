@@ -122,11 +122,11 @@ class LocalWhisperTranscriber:
                     best_of=5,
                     temperature=0.0,
                     vad_filter=True,  # 启用 VAD 过滤静音
-                    vad_parameters=dict(
-                        threshold=0.5,
-                        min_speech_duration_ms=250,
-                        min_silence_duration_ms=500
-                    )
+                    vad_parameters={
+                        "min_speech_duration_ms": 250,
+                        "min_silence_duration_ms": 500,
+                        "speech_pad_ms": 400,
+                    }
                 )
 
                 # 4. 合并所有片段
