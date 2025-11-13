@@ -35,6 +35,7 @@ from audio_capture import AudioCaptureThread
 from transcription import TranscriptionThread
 from subtitle_storage import SubtitleStorage
 from desktop_subtitle import DesktopSubtitleWindow
+from ui_components import TechColors, GlowButton, StatusIndicator, StatsCard
 import time
 
 # ========== 语言配置 ==========
@@ -174,8 +175,8 @@ class SubtitleApp:
         # 允许窗口缩放
         self.root.resizable(True, True)
 
-        # 设置窗口背景色（Material Design浅灰）
-        self.root.configure(bg='#f5f5f5')
+        # 设置窗口背景色（科技感深空蓝黑）
+        self.root.configure(bg=TechColors.BG_PRIMARY)
 
         # 设置窗口图标颜色主题
         style = ttk.Style()
@@ -206,63 +207,64 @@ class SubtitleApp:
                  background=[('active', '#ffffff')])
 
         # 创建主容器（带内边距）
-        main_container = tk.Frame(self.root, bg='#f5f5f5')
+        main_container = tk.Frame(self.root, bg=TechColors.BG_PRIMARY)
         main_container.pack(fill=tk.BOTH, expand=True)
 
-        # === 顶部标题栏（Material Design风格）===
-        header_frame = tk.Frame(main_container, bg='#1976d2', height=70)
+        # === 顶部标题栏（科技感风格）===
+        header_frame = tk.Frame(main_container, bg=TechColors.BG_PRIMARY, height=70)
         header_frame.pack(fill=tk.X)
         header_frame.pack_propagate(False)
 
         # 添加阴影效果（使用渐变Frame模拟）
-        shadow = tk.Frame(main_container, bg='#e0e0e0', height=2)
+        shadow = tk.Frame(main_container, bg=TechColors.BORDER_PRIMARY, height=1)  # 2 → 1 更细腻
         shadow.pack(fill=tk.X)
 
         tk.Label(
             header_frame,
             text="🎬 实时语音翻译字幕系统",
             font=("Microsoft YaHei", 20, "bold"),
-            bg='#1976d2',
-            fg='white'
+            bg=TechColors.BG_PRIMARY,
+            fg=TechColors.TEXT_PRIMARY
         ).pack(side=tk.LEFT, padx=30, pady=20)
 
         # 状态指示区域
-        status_frame = tk.Frame(header_frame, bg='#1976d2')
+        status_frame = tk.Frame(header_frame, bg=TechColors.BG_PRIMARY)
         status_frame.pack(side=tk.RIGHT, padx=30, pady=20)
 
-        self.status_canvas = tk.Canvas(status_frame, width=16, height=16, bg='#1976d2', highlightthickness=0)
+        self.status_canvas = tk.Canvas(status_frame, width=16, height=16, bg=TechColors.BG_PRIMARY, highlightthickness=0)
         self.status_canvas.pack(side=tk.LEFT, padx=(0, 10))
-        self.status_indicator = self.status_canvas.create_oval(2, 2, 14, 14, fill='#bdbdbd', outline='#757575', width=2)
+        # 使用StatusIndicator组件
+        self.status_indicator_obj = StatusIndicator(self.status_canvas, 8, 8, radius=6)
 
         self.status_label = tk.Label(
             status_frame,
             text="未运行",
             font=("Microsoft YaHei", 11, "bold"),
-            bg='#1976d2',
-            fg='white'
+            bg=TechColors.BG_PRIMARY,
+            fg=TechColors.TEXT_PRIMARY
         )
         self.status_label.pack(side=tk.LEFT)
 
         # === 语言选择区域（卡片样式）===
-        card_container = tk.Frame(main_container, bg='#f5f5f5')
+        card_container = tk.Frame(main_container, bg=TechColors.BG_PRIMARY)
         card_container.pack(fill=tk.X, padx=20, pady=20)
 
-        lang_card = tk.Frame(card_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
+        lang_card = tk.Frame(card_container, bg=TechColors.BG_CARD, highlightbackground=TechColors.BORDER_PRIMARY, highlightthickness=1)
         lang_card.pack(fill=tk.X)
 
-        lang_frame = tk.Frame(lang_card, bg='#ffffff')
+        lang_frame = tk.Frame(lang_card, bg=TechColors.BG_CARD)
         lang_frame.pack(fill=tk.X, padx=20, pady=15)
 
         # 源语言选择
-        source_lang_frame = tk.Frame(lang_frame, bg='#ffffff')
+        source_lang_frame = tk.Frame(lang_frame, bg=TechColors.BG_CARD)
         source_lang_frame.pack(side=tk.LEFT, padx=(0, 20))
 
         tk.Label(
             source_lang_frame,
             text="🎤 原语言:",
             font=("Microsoft YaHei", 11),
-            bg='#ffffff',
-            fg='#424242'
+            bg=TechColors.BG_CARD,
+            fg=TechColors.TEXT_SECONDARY
         ).pack(side=tk.LEFT, padx=(0, 8))
         self.source_lang_var = tk.StringVar(value="中文")
         self.source_lang_combo = ttk.Combobox(
@@ -277,15 +279,15 @@ class SubtitleApp:
         self.source_lang_combo.pack(side=tk.LEFT)
 
         # 目标语言选择
-        target_lang_frame = tk.Frame(lang_frame, bg='#ffffff')
+        target_lang_frame = tk.Frame(lang_frame, bg=TechColors.BG_CARD)
         target_lang_frame.pack(side=tk.LEFT, padx=(0, 20))
 
         tk.Label(
             target_lang_frame,
             text="🌍 翻译为:",
             font=("Microsoft YaHei", 11),
-            bg='#ffffff',
-            fg='#424242'
+            bg=TechColors.BG_CARD,
+            fg=TechColors.TEXT_SECONDARY
         ).pack(side=tk.LEFT, padx=(0, 8))
         self.target_lang_var = tk.StringVar(value="英语（美式）")
         self.target_lang_combo = ttk.Combobox(
@@ -310,94 +312,57 @@ class SubtitleApp:
         self.desktop_subtitle_check.pack(side=tk.LEFT, padx=(20, 0))
 
         # === 控制按钮区域（卡片样式）===
-        control_card = tk.Frame(main_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
+        control_card = tk.Frame(main_container, bg=TechColors.BG_CARD, highlightbackground=TechColors.BORDER_PRIMARY, highlightthickness=1)
         control_card.pack(fill=tk.X, padx=20, pady=(0, 20))
 
-        control_frame = tk.Frame(control_card, bg='#ffffff')
+        control_frame = tk.Frame(control_card, bg=TechColors.BG_CARD)
         control_frame.pack(fill=tk.X, padx=20, pady=20)
 
         # 按钮容器
-        button_container = tk.Frame(control_frame, bg='#ffffff')
+        button_container = tk.Frame(control_frame, bg=TechColors.BG_CARD)
         button_container.pack(side=tk.LEFT)
 
-        # 创建现代化圆角按钮（Material Design风格）
-        self.btn_start = tk.Button(
+        # 创建霓虹发光按钮（科技感风格）
+        self.btn_start = GlowButton(
             button_container,
-            text="▶  开始捕获",
-            command=self.start_capture,
-            font=("Microsoft YaHei", 11, "bold"),
-            bg='#4caf50',
-            fg='white',
-            activebackground='#45a049',
-            activeforeground='white',
-            relief=tk.FLAT,
-            padx=25,
-            pady=12,
-            cursor='hand2',
-            borderwidth=0,
-            highlightthickness=0
+            text="▶   开始捕获",  # 增加图标间距
+            style='success',
+            command=self.start_capture
         )
-        self.btn_start.pack(side=tk.LEFT, padx=(0, 12))
-        # 添加悬停效果
-        self.btn_start.bind('<Enter>', lambda e: self.btn_start.config(bg='#45a049'))
-        self.btn_start.bind('<Leave>', lambda e: self.btn_start.config(bg='#4caf50'))
+        self.btn_start.pack(side=tk.LEFT, padx=(0, 15))  # 12 → 15 按钮间距更宽
 
-        self.btn_stop = tk.Button(
+        self.btn_stop = GlowButton(
             button_container,
-            text="⏹  停止",
+            text="⏹   停止",  # 增加图标间距
+            style='error',
             command=self.stop_capture,
-            font=("Microsoft YaHei", 11, "bold"),
-            bg='#bdbdbd',
-            fg='white',
-            activebackground='#9e9e9e',
-            activeforeground='white',
-            relief=tk.FLAT,
-            padx=25,
-            pady=12,
-            cursor='hand2',
-            borderwidth=0,
-            highlightthickness=0,
             state=tk.DISABLED
         )
-        self.btn_stop.pack(side=tk.LEFT, padx=(0, 12))
-        self.btn_stop.bind('<Enter>', lambda e: self.btn_stop.config(bg='#9e9e9e') if self.btn_stop['state'] == tk.NORMAL else None)
-        self.btn_stop.bind('<Leave>', lambda e: self.btn_stop.config(bg='#f44336') if self.btn_stop['state'] == tk.NORMAL else None)
+        self.btn_stop.pack(side=tk.LEFT, padx=(0, 15))
 
-        self.btn_export = tk.Button(
+        self.btn_export = GlowButton(
             button_container,
-            text="💾  导出SRT",
-            command=self.export_srt,
-            font=("Microsoft YaHei", 11, "bold"),
-            bg='#2196f3',
-            fg='white',
-            activebackground='#1976d2',
-            activeforeground='white',
-            relief=tk.FLAT,
-            padx=25,
-            pady=12,
-            cursor='hand2',
-            borderwidth=0,
-            highlightthickness=0
+            text="💾   导出SRT",  # 增加图标间距
+            style='primary',
+            command=self.export_srt
         )
         self.btn_export.pack(side=tk.LEFT)
-        self.btn_export.bind('<Enter>', lambda e: self.btn_export.config(bg='#1976d2'))
-        self.btn_export.bind('<Leave>', lambda e: self.btn_export.config(bg='#2196f3'))
 
         # 统计信息区域
-        stats_container = tk.Frame(control_frame, bg='#ffffff')
+        stats_container = tk.Frame(control_frame, bg=TechColors.BG_CARD)
         stats_container.pack(side=tk.RIGHT)
 
         self.stats_label = tk.Label(
             stats_container,
             text="📊 字幕: 0 条  |  ⏱️ 时长: 00:00:00",
             font=("Microsoft YaHei", 11),
-            bg='#ffffff',
-            fg='#616161'
+            bg=TechColors.BG_CARD,
+            fg=TechColors.TEXT_SECONDARY
         )
         self.stats_label.pack()
 
         # === 文本框区域容器（使用Grid布局实现真正的响应式）===
-        textbox_container = tk.Frame(main_container, bg='#f5f5f5')
+        textbox_container = tk.Frame(main_container, bg=TechColors.BG_PRIMARY)
         textbox_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
 
         # 配置Grid权重，使两个文本框各占50%高度
@@ -405,41 +370,43 @@ class SubtitleApp:
         textbox_container.grid_rowconfigure(1, weight=1)  # 翻译框
         textbox_container.grid_columnconfigure(0, weight=1)  # 宽度自适应
 
-        # === 原文显示区域（现代卡片样式 - 响应式）===
-        original_card = tk.Frame(textbox_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
-        original_card.grid(row=0, column=0, sticky='nsew', pady=(0, 15))
+        # === 原文显示区域（科技感卡片样式 - 响应式）===
+        original_card = tk.Frame(textbox_container, bg=TechColors.BG_CARD, highlightbackground=TechColors.BORDER_PRIMARY, highlightthickness=1)
+        original_card.grid(row=0, column=0, sticky='nsew', pady=(0, 20))  # 15 → 20 更透气
 
         # 标题栏
-        original_header = tk.Frame(original_card, bg='#ffffff')
+        original_header = tk.Frame(original_card, bg=TechColors.BG_CARD)
         original_header.pack(fill=tk.X, padx=20, pady=(15, 10))
 
         tk.Label(
             original_header,
             text="📝 原文字幕",
             font=("Microsoft YaHei", 12, "bold"),
-            bg='#ffffff',
-            fg='#1976d2'
+            bg=TechColors.BG_CARD,
+            fg=TechColors.ACCENT_PRIMARY
         ).pack(side=tk.LEFT)
 
         # 文本框容器（响应式填充剩余空间）
-        original_text_container = tk.Frame(original_card, bg='#ffffff')
+        original_text_container = tk.Frame(original_card, bg=TechColors.BG_CARD)
         original_text_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 15))
 
         # 原文文本框（响应式）
         self.original_text = tk.Text(
             original_text_container,
             wrap=tk.WORD,
-            font=("Consolas", 11),
-            bg='#fafafa',
-            fg='#212121',
-            insertbackground='#1976d2',
-            selectbackground='#bbdefb',
-            selectforeground='#212121',
+            font=("Consolas", 12),  # 11 → 12 更清晰易读
+            bg=TechColors.BG_SECONDARY,
+            fg=TechColors.TEXT_PRIMARY,
+            insertbackground=TechColors.ACCENT_PRIMARY,
+            selectbackground=TechColors.ACCENT_PRIMARY,
+            selectforeground=TechColors.BG_PRIMARY,
             relief=tk.FLAT,
             padx=15,
             pady=15,
             borderwidth=0,
-            highlightthickness=0
+            highlightthickness=0,
+            spacing1=4,  # 段落上方间距
+            spacing3=4   # 段落下方间距
         )
         self.original_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -450,41 +417,43 @@ class SubtitleApp:
         original_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0))
         self.original_text.config(yscrollcommand=original_scroll.set)
 
-        # === 翻译显示区域（现代卡片样式 - 响应式）===
-        translated_card = tk.Frame(textbox_container, bg='#ffffff', highlightbackground='#e0e0e0', highlightthickness=1)
+        # === 翻译显示区域（科技感卡片样式 - 响应式）===
+        translated_card = tk.Frame(textbox_container, bg=TechColors.BG_CARD, highlightbackground=TechColors.BORDER_PRIMARY, highlightthickness=1)
         translated_card.grid(row=1, column=0, sticky='nsew')
 
         # 标题栏
-        translated_header = tk.Frame(translated_card, bg='#ffffff')
+        translated_header = tk.Frame(translated_card, bg=TechColors.BG_CARD)
         translated_header.pack(fill=tk.X, padx=20, pady=(15, 10))
 
         tk.Label(
             translated_header,
             text="🌍 翻译字幕",
             font=("Microsoft YaHei", 12, "bold"),
-            bg='#ffffff',
-            fg='#1976d2'
+            bg=TechColors.BG_CARD,
+            fg=TechColors.ACCENT_PRIMARY
         ).pack(side=tk.LEFT)
 
         # 文本框容器（响应式填充剩余空间）
-        translated_text_container = tk.Frame(translated_card, bg='#ffffff')
+        translated_text_container = tk.Frame(translated_card, bg=TechColors.BG_CARD)
         translated_text_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 15))
 
         # 翻译文本框（响应式）
         self.translated_text = tk.Text(
             translated_text_container,
             wrap=tk.WORD,
-            font=("Microsoft YaHei", 11),
-            bg='#fafafa',
-            fg='#212121',
-            insertbackground='#1976d2',
-            selectbackground='#bbdefb',
-            selectforeground='#212121',
+            font=("Microsoft YaHei", 12),  # 11 → 12 更清晰易读
+            bg=TechColors.BG_SECONDARY,
+            fg=TechColors.TEXT_PRIMARY,
+            insertbackground=TechColors.ACCENT_PRIMARY,
+            selectbackground=TechColors.ACCENT_PRIMARY,
+            selectforeground=TechColors.BG_PRIMARY,
             relief=tk.FLAT,
             padx=15,
             pady=15,
             borderwidth=0,
-            highlightthickness=0
+            highlightthickness=0,
+            spacing1=4,  # 段落上方间距
+            spacing3=4   # 段落下方间距
         )
         self.translated_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -495,8 +464,35 @@ class SubtitleApp:
         translated_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0))
         self.translated_text.config(yscrollcommand=translated_scroll.set)
 
-        # === 底部状态栏（现代化样式）===
-        status_bar = tk.Frame(main_container, bg='#424242', height=40)
+        # === 状态监控区（实时仪表盘）===
+        monitor_container = tk.Frame(main_container, bg=TechColors.BG_PRIMARY)
+        monitor_container.pack(fill=tk.X, padx=20, pady=(0, 20))
+
+        # 2x2 Grid布局
+        monitor_frame = tk.Frame(monitor_container, bg=TechColors.BG_PRIMARY)
+        monitor_frame.pack(fill=tk.X)
+
+        monitor_frame.grid_columnconfigure(0, weight=1)
+        monitor_frame.grid_columnconfigure(1, weight=1)
+
+        # 卡片1：音频捕获
+        self.audio_card = StatsCard(monitor_frame, "🔊", "音频捕获", show_progress=True)
+        self.audio_card.grid(row=0, column=0, sticky='ew', padx=(0, 10), pady=(0, 10))
+
+        # 卡片2：队列状态
+        self.queue_card = StatsCard(monitor_frame, "📊", "队列状态", show_progress=True)
+        self.queue_card.grid(row=0, column=1, sticky='ew', padx=(10, 0), pady=(0, 10))
+
+        # 卡片3：API统计
+        self.api_card = StatsCard(monitor_frame, "💰", "API统计", show_progress=False)
+        self.api_card.grid(row=1, column=0, sticky='ew', padx=(0, 10))
+
+        # 卡片4：VAD优化
+        self.vad_card = StatsCard(monitor_frame, "⚡", "VAD优化", show_progress=True)
+        self.vad_card.grid(row=1, column=1, sticky='ew', padx=(10, 0))
+
+        # === 底部状态栏（科技感样式）===
+        status_bar = tk.Frame(main_container, bg=TechColors.BG_SECONDARY, height=40)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
         status_bar.pack_propagate(False)
 
@@ -504,8 +500,8 @@ class SubtitleApp:
             status_bar,
             text="💡 提示：选择语言后点击'开始捕获'，勾选'显示桌面字幕'可启用置顶字幕窗口",
             font=("Microsoft YaHei", 10),
-            bg='#424242',
-            fg='#e0e0e0',
+            bg=TechColors.BG_SECONDARY,
+            fg=TechColors.TEXT_SECONDARY,
             anchor=tk.W
         )
         self.status_bar_label.pack(side=tk.LEFT, padx=20, pady=10)
@@ -586,14 +582,17 @@ class SubtitleApp:
         self.start_queue_monitor()
 
         # 9. 更新按钮状态
-        self.btn_start.config(state=tk.DISABLED, bg='#bdbdbd')
-        self.btn_stop.config(state=tk.NORMAL, bg='#f44336')
+        self.btn_start.config(state=tk.DISABLED)
+        self.btn_start.normal_bg = TechColors.TEXT_TERTIARY  # 禁用时使用灰色
+        self.btn_start.config(bg=TechColors.TEXT_TERTIARY)
+        self.btn_stop.config(state=tk.NORMAL)
 
         # 10. 更新状态指示和统计
         self._update_status("running")
         self.subtitle_count = 0
         self.start_time = time.time()
         self._start_stats_update()
+        self._update_monitor_stats()  # 启动监控区数据更新
 
         print("[INFO] 字幕捕获已启动")
 
@@ -664,8 +663,12 @@ class SubtitleApp:
             self.transcription_thread.join(timeout=10)
 
         # 4. 更新按钮状态
-        self.btn_start.config(state=tk.NORMAL, bg='#4caf50')
-        self.btn_stop.config(state=tk.DISABLED, bg='#bdbdbd')
+        self.btn_start.config(state=tk.NORMAL)
+        self.btn_start.normal_bg = TechColors.ACCENT_SUCCESS
+        self.btn_start.config(bg=TechColors.ACCENT_SUCCESS)
+        self.btn_stop.config(state=tk.DISABLED)
+        self.btn_stop.normal_bg = TechColors.TEXT_TERTIARY
+        self.btn_stop.config(bg=TechColors.TEXT_TERTIARY)
 
         # 5. 更新状态指示
         self._update_status("stopped")
@@ -737,17 +740,18 @@ class SubtitleApp:
 
     def _update_status(self, status):
         """
-        更新状态指示灯（Material Design风格）
+        更新状态指示灯（科技感风格 + 呼吸动画）
 
         参数:
             status (str): 状态 - "running", "stopped"
         """
+        # 使用StatusIndicator组件
+        self.status_indicator_obj.set_status(status)
+
         if status == "running":
-            self.status_canvas.itemconfig(self.status_indicator, fill='#4caf50', outline='#2e7d32', width=2)
             self.status_label.config(text="运行中")
             self.status_bar_label.config(text="🎬 正在实时捕获音频并生成双语字幕...")
         elif status == "stopped":
-            self.status_canvas.itemconfig(self.status_indicator, fill='#bdbdbd', outline='#757575', width=2)
             self.status_label.config(text="未运行")
             self.status_bar_label.config(text="💡 提示：选择语言后点击'开始捕获'，勾选'显示桌面字幕'可启用置顶字幕窗口")
 
@@ -768,6 +772,54 @@ class SubtitleApp:
                     self.root.after(1000, update_stats)
 
         update_stats()
+
+    def _update_monitor_stats(self):
+        """更新状态监控区数据（每秒更新）"""
+        if not self.stop_event.is_set():
+            # 1. 更新音频捕获状态
+            if self.audio_thread and self.audio_thread.is_alive():
+                self.audio_card.set_progress(0.92, "92%")
+                self.audio_card.set_value("✓ 正常运行")
+            else:
+                self.audio_card.set_progress(0, "0%")
+                self.audio_card.set_value("✗ 未运行")
+
+            # 2. 更新队列状态
+            queue_size = self.audio_queue.qsize()
+            queue_progress = min(queue_size / 10.0, 1.0)
+            self.queue_card.set_progress(queue_progress, f"{queue_size}/10")
+
+            if queue_size < 5:
+                self.queue_card.set_value("✓ 处理流畅")
+            elif queue_size < 8:
+                self.queue_card.set_value("⚠ 轻微堆积")
+            else:
+                self.queue_card.set_value("❗ 严重堆积")
+
+            # 3. 更新API统计
+            api_cost = self.subtitle_count * 0.006
+            self.api_card.set_value(f"{self.subtitle_count}次 (${api_cost:.2f})")
+
+            # 4. 更新VAD统计
+            if hasattr(self, 'audio_thread') and self.audio_thread and hasattr(self.audio_thread, 'enable_vad'):
+                if self.audio_thread.enable_vad and hasattr(self.audio_thread, 'get_vad_statistics'):
+                    try:
+                        stats = self.audio_thread.get_vad_statistics()
+                        savings = stats.get('savings_percent', 0)
+                        self.vad_card.set_progress(savings / 100.0, f"{savings:.0f}%")
+                        self.vad_card.set_value("✓ 已启用")
+                    except:
+                        self.vad_card.set_progress(0, "0%")
+                        self.vad_card.set_value("✓ 已启用")
+                else:
+                    self.vad_card.set_progress(0, "0%")
+                    self.vad_card.set_value("✗ 未启用")
+            else:
+                self.vad_card.set_progress(0, "0%")
+                self.vad_card.set_value("✗ 未启用")
+
+            # 每1秒更新一次
+            self.root.after(1000, self._update_monitor_stats)
 
 
 def main():

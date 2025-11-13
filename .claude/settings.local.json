@@ -12,7 +12,17 @@
       "Bash(NUL)",
       "Bash(dir:*)",
       "Bash(nul)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(find:*)",
+      "Bash(npx @thirdstrandstudio/mcp-figma --help)",
+      "Bash(npm search:*)",
+      "Bash(npx @thirdstrandstudio/mcp-figma:*)",
+      "WebFetch(domain:zapier.com)",
+      "WebSearch",
+      "WebFetch(domain:www.anthropic.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:clune.org)",
+      "WebFetch(domain:levelup.gitconnected.com)"
     ],
     "deny": [],
     "ask": []
