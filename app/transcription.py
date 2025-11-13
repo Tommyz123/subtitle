@@ -26,16 +26,25 @@ from openai import OpenAI
 import deepl
 from concurrent.futures import ThreadPoolExecutor
 
-# 导入本地 Whisper 模块
+# 导入本地 Whisper 模块（兼容相对导入和绝对导入）
+LOCAL_WHISPER_AVAILABLE = False
+LocalWhisperTranscriber = None
+
 try:
+    # 尝试相对导入（从项目根目录运行时）
     from .local_whisper import LocalWhisperTranscriber
     LOCAL_WHISPER_AVAILABLE = True
-except ImportError as e:
-    LOCAL_WHISPER_AVAILABLE = False
-    print(f"[WARNING] 本地模式不可用，导入错误详情: {e}")
-    print("[INFO] 如需使用本地模式，请确保已安装: pip install faster-whisper")
-    import traceback
-    traceback.print_exc()
+except ImportError:
+    try:
+        # 尝试绝对导入（从 app 目录运行时）
+        from local_whisper import LocalWhisperTranscriber
+        LOCAL_WHISPER_AVAILABLE = True
+    except ImportError as e:
+        LOCAL_WHISPER_AVAILABLE = False
+        print(f"[WARNING] 本地模式不可用，导入错误详情: {e}")
+        print("[INFO] 如需使用本地模式，请确保已安装: pip install faster-whisper")
+        import traceback
+        traceback.print_exc()
 
 
 class TranscriptionThread(threading.Thread):
