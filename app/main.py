@@ -691,11 +691,15 @@ class SubtitleApp:
         self.original_text.delete(1.0, tk.END)
         self.translated_text.delete(1.0, tk.END)
 
-        # 5. 启动音频捕获线程 (阶段2: 传入VAD配置)
+        # 5. 启动音频捕获线程 (支持VAD + 音频播放)
+        # 音频播放默认启用，解决VB-CABLE无声问题
+        enable_playback = parse_bool_config(os.getenv('ENABLE_PLAYBACK', 'true'), default=True)
+
         self.audio_thread = AudioCaptureThread(
             self.audio_queue,
             self.stop_event,
-            enable_vad=vad_enabled
+            enable_vad=vad_enabled,
+            enable_playback=enable_playback  # 解决VB-CABLE无声问题
         )
         self.audio_thread.daemon = True
         self.audio_thread.start()

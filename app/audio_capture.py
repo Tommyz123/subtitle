@@ -23,17 +23,19 @@ import numpy as np
 class AudioCaptureThread(threading.Thread):
     """音频捕获线程 - 从VB-Cable捕获音频并分块 + VAD检测"""
 
-    def __init__(self, audio_queue, stop_event, enable_vad=False):
+    def __init__(self, audio_queue, stop_event, enable_vad=False, enable_playback=True):
         """
         参数:
             audio_queue (queue.Queue): 音频数据队列
             stop_event (threading.Event): 停止信号
             enable_vad (bool): 是否启用VAD检测, 默认False
+            enable_playback (bool): 是否启用音频播放（解决VB-CABLE无声问题）, 默认True
         """
         super().__init__(daemon=True)
         self.audio_queue = audio_queue
         self.stop_event = stop_event
         self.enable_vad = enable_vad
+        self.enable_playback = enable_playback
 
         # 音频参数
         self.CHUNK = 1024                    # 每次读取的帧数
@@ -121,16 +123,20 @@ class AudioCaptureThread(threading.Thread):
 
         return None
 
-    def capture_chunk(self, stream):
+    def capture_chunk(self, stream, playback_stream=None):
         """
-        捕获固定5秒的音频块
+        捕获固定5秒的音频块，同时播放（如果启用）
+
+        参数:
+            stream: 输入流（VB-CABLE）
+            playback_stream: 播放流（默认音频设备），可选
 
         返回:
-            bytes: 音频数据 (48kHz, 立体声, 16-bit)
+            bytes: 音频数据 (16kHz, 单声道, 16-bit)
         """
         frames = []
 
-        # 计算需要读取的次数: 48000 / 1024 * 5 ≈ 234次
+        # 计算需要读取的次数: 16000 / 1024 * 5 ≈ 78次
         num_chunks = int(self.RATE / self.CHUNK * self.CHUNK_DURATION)
 
         for _ in range(num_chunks):
@@ -138,11 +144,29 @@ class AudioCaptureThread(threading.Thread):
                 # P0修复: exception_on_overflow=False 避免缓冲区溢出异常
                 data = stream.read(self.CHUNK, exception_on_overflow=False)
                 frames.append(data)
+
+                # 同时播放音频（解决VB-CABLE无声问题）
+                if self.enable_playback and playback_stream:
+                    try:
+                        playback_stream.write(data)
+                    except Exception as e:
+                        # 播放失败不影响捕获
+                        if _ == 0:  # 只打印一次，避免刷屏
+                            print(f"[WARNING] 音频播放异常: {e}")
+
             except Exception as e:
                 # P0修复: 捕获异常，填充静音数据保持时序
                 print(f"[WARNING] 音频流读取异常: {e}")
                 # 填充静音: CHUNK帧 * CHANNELS * 2字节/帧
-                frames.append(b'\x00' * (self.CHUNK * self.CHANNELS * 2))
+                silence = b'\x00' * (self.CHUNK * self.CHANNELS * 2)
+                frames.append(silence)
+
+                # 播放静音
+                if self.enable_playback and playback_stream:
+                    try:
+                        playback_stream.write(silence)
+                    except:
+                        pass
 
         # 合并所有帧
         audio_data = b''.join(frames)
@@ -223,8 +247,9 @@ class AudioCaptureThread(threading.Thread):
         }
 
     def run(self):
-        """线程主循环 - 持续捕获音频并放入队列"""
+        """线程主循环 - 持续捕获音频并放入队列 + 音频播放"""
         audio = pyaudio.PyAudio()
+        playback_stream = None
 
         try:
             # 1. 查找VB-Cable设备
@@ -232,7 +257,7 @@ class AudioCaptureThread(threading.Thread):
             if device_index is None:
                 raise Exception("未找到VB-Cable设备，请确保驱动已安装并重启电脑")
 
-            # 2. 打开音频流
+            # 2. 打开音频捕获流（VB-CABLE）
             stream = audio.open(
                 format=self.FORMAT,
                 channels=self.CHANNELS,
@@ -242,12 +267,28 @@ class AudioCaptureThread(threading.Thread):
                 frames_per_buffer=self.CHUNK
             )
 
+            # 3. 打开音频播放流（默认设备）- 解决VB-CABLE无声问题
+            if self.enable_playback:
+                try:
+                    playback_stream = audio.open(
+                        format=self.FORMAT,
+                        channels=self.CHANNELS,
+                        rate=self.RATE,
+                        output=True,
+                        frames_per_buffer=self.CHUNK
+                    )
+                    print("[INFO] 音频播放已启用（解决VB-CABLE无声问题）")
+                except Exception as e:
+                    print(f"[WARNING] 无法打开播放流: {e}")
+                    print("[WARNING] 将继续捕获但不播放音频")
+                    playback_stream = None
+
             print("[INFO] 音频捕获线程已启动")
 
-            # 3. 捕获循环
+            # 4. 捕获循环
             while not self.stop_event.is_set():
-                # 捕获5秒音频
-                audio_chunk = self.capture_chunk(stream)
+                # 捕获5秒音频（同时播放）
+                audio_chunk = self.capture_chunk(stream, playback_stream)
 
                 # 统计
                 self.total_chunks += 1
@@ -267,9 +308,14 @@ class AudioCaptureThread(threading.Thread):
                 except queue.Full:
                     print("[WARNING] 队列已满，丢弃音频块")
 
-            # 4. 清理
+            # 5. 清理
             stream.stop_stream()
             stream.close()
+
+            if playback_stream:
+                playback_stream.stop_stream()
+                playback_stream.close()
+
             print("[INFO] 音频捕获线程已停止")
 
         finally:
