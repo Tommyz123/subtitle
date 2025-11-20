@@ -1,11 +1,15 @@
 """
-转录翻译模块 - 阶段2优化版本
+转录翻译模块 - 支持本地模型和API双模式
 
 职责:
 - 从队列获取音频块
-- 调用OpenAI Whisper API转录
+- 转录: 支持本地 faster-whisper 或 OpenAI Whisper API
 - 调用DeepL API翻译
 - 通过回调返回结果
+
+模式:
+- local: 使用本地 faster-whisper 模型 (离线, 免费, 需要GPU/CPU资源)
+- api: 使用 OpenAI Whisper API (在线, 付费, 无需本地资源)
 
 阶段2新增:
 - API调用3次重试 + 指数退避
@@ -22,22 +26,61 @@ from openai import OpenAI
 import deepl
 from concurrent.futures import ThreadPoolExecutor
 
+# 导入本地 Whisper 模块（兼容相对导入和绝对导入）
+LOCAL_WHISPER_AVAILABLE = False
+LocalWhisperTranscriber = None
+
+try:
+    # 尝试相对导入（从项目根目录运行时）
+    from .local_whisper import LocalWhisperTranscriber
+    LOCAL_WHISPER_AVAILABLE = True
+except ImportError:
+    try:
+        # 尝试绝对导入（从 app 目录运行时）
+        from local_whisper import LocalWhisperTranscriber
+        LOCAL_WHISPER_AVAILABLE = True
+    except ImportError as e:
+        LOCAL_WHISPER_AVAILABLE = False
+        print(f"[WARNING] 本地模式不可用，导入错误详情: {e}")
+        print("[INFO] 如需使用本地模式，请确保已安装: pip install faster-whisper")
+        import traceback
+        traceback.print_exc()
+
+# 导入本地翻译模块（可选，用于加速本地模式）
+LOCAL_TRANSLATOR_AVAILABLE = False
+LocalTranslator = None
+
+try:
+    from .local_translator import LocalTranslator
+    LOCAL_TRANSLATOR_AVAILABLE = True
+except ImportError:
+    try:
+        from local_translator import LocalTranslator
+        LOCAL_TRANSLATOR_AVAILABLE = True
+    except ImportError:
+        LOCAL_TRANSLATOR_AVAILABLE = False
+        print("[INFO] 本地翻译不可用（将使用 DeepL），如需安装: pip install transformers sentencepiece")
+
 
 class TranscriptionThread(threading.Thread):
     """转录翻译线程 - 处理音频块并返回字幕 + 重试机制"""
 
     def __init__(self, audio_queue, stop_event, callback, openai_key, deepl_key,
-                 source_lang="zh", target_lang="EN-US", audio_thread=None):
+                 source_lang="zh", target_lang="EN-US", audio_thread=None,
+                 mode="api", local_model_size="base", use_local_translation=True):
         """
         参数:
             audio_queue (queue.Queue): 音频数据队列
             stop_event (threading.Event): 停止信号
             callback (callable): 回调函数 callback(original, translation)
-            openai_key (str): OpenAI API Key
+            openai_key (str): OpenAI API Key (仅在 api 模式下需要)
             deepl_key (str): DeepL API Key
             source_lang (str): 源语言代码 (Whisper支持的语言代码)
             target_lang (str): 目标语言代码 (DeepL支持的语言代码)
             audio_thread (AudioCaptureThread): 音频捕获线程引用 (用于VAD检查)
+            mode (str): 转录模式 - "local" (本地模型) 或 "api" (OpenAI API)
+            local_model_size (str): 本地模型大小 - tiny, base, small, medium, large-v2
+            use_local_translation (bool): 是否使用本地翻译（仅local模式，更快）
         """
         super().__init__(daemon=True)
         self.audio_queue = audio_queue
@@ -49,16 +92,71 @@ class TranscriptionThread(threading.Thread):
         self.source_lang = source_lang
         self.target_lang = target_lang
 
-        # 初始化API客户端
-        self.openai_client = OpenAI(api_key=openai_key)
-        self.deepl_translator = deepl.Translator(deepl_key)
+        # 模式配置
+        self.mode = mode
+        self.local_model_size = local_model_size
+        self.use_local_translation = use_local_translation and (mode == "local")  # 仅本地模式可用
 
-        # 方案U优化: DeepL连接预热，消除冷启动延迟
-        try:
-            self.deepl_translator.translate_text(".", target_lang="EN-US")
-            print("[INFO] DeepL连接预热完成")
-        except:
-            pass  # 忽略预热失败
+        print(f"\n[INFO] 转录模式: {mode.upper()}")
+
+        # 初始化转录器 (根据模式)
+        if mode == "local":
+            # 本地模式: 使用 faster-whisper
+            if not LOCAL_WHISPER_AVAILABLE:
+                raise RuntimeError("本地模式需要安装 faster-whisper: pip install faster-whisper")
+
+            print(f"[INFO] 正在初始化本地 Whisper 模型 ({local_model_size})...")
+            self.local_transcriber = LocalWhisperTranscriber(
+                model_size=local_model_size,
+                device="auto",
+                compute_type="auto"
+            )
+            self.openai_client = None
+            print("[SUCCESS] 本地模型初始化完成\n")
+
+        elif mode == "api":
+            # API 模式: 使用 OpenAI Whisper API
+            if not openai_key:
+                raise ValueError("API 模式需要提供 OpenAI API Key")
+
+            self.openai_client = OpenAI(api_key=openai_key)
+            self.local_transcriber = None
+            print("[INFO] OpenAI Whisper API 已配置\n")
+
+        else:
+            raise ValueError(f"不支持的模式: {mode}，请选择 'local' 或 'api'")
+
+        # 初始化翻译器（根据模式和配置）
+        self.local_translator = None
+        self.deepl_translator = None
+
+        if self.use_local_translation and LOCAL_TRANSLATOR_AVAILABLE:
+            # 使用本地翻译模型（更快，完全离线）
+            print(f"[INFO] 正在初始化本地翻译模型...")
+            try:
+                self.local_translator = LocalTranslator(
+                    model_size="distilled-600M",  # 轻量级模型
+                    device="auto"
+                )
+                print("[SUCCESS] 本地翻译模型初始化完成（速度< 100ms）\n")
+            except Exception as e:
+                print(f"[WARNING] 本地翻译初始化失败: {e}")
+                print("[INFO] 将回退到 DeepL API")
+                self.use_local_translation = False
+
+        if not self.use_local_translation:
+            # 使用 DeepL API 翻译
+            if not deepl_key:
+                raise ValueError("DeepL API Key 是必需的（本地翻译不可用或已禁用）")
+
+            self.deepl_translator = deepl.Translator(deepl_key)
+
+            # 方案U优化: DeepL连接预热，消除冷启动延迟
+            try:
+                self.deepl_translator.translate_text(".", target_lang="EN-US")
+                print("[INFO] DeepL API 已配置并预热完成\n")
+            except:
+                print("[INFO] DeepL API 已配置\n")
 
         # 重试配置
         self.max_retries = 3
@@ -66,18 +164,41 @@ class TranscriptionThread(threading.Thread):
 
         # 方案E优化: 增加线程池worker数量，提升处理速度
         # max_workers=6: 最多6个API并发请求（处理能力翻倍）
-        self.executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="APIWorker")
+        self.executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="TranscribeWorker")
 
     def transcribe(self, audio_data):
         """
-        调用Whisper API转录 (阶段2: 3次重试 + 指数退避)
+        调用 Whisper 转录 (支持本地模型和API两种模式)
 
         参数:
-            audio_data (bytes): 48kHz立体声音频数据
+            audio_data (bytes): 16kHz 单声道 16-bit PCM 音频数据
 
         返回:
             str: 转录文本，失败返回None
         """
+        # 本地模式: 使用 faster-whisper
+        if self.mode == "local":
+            return self._transcribe_local(audio_data)
+
+        # API 模式: 使用 OpenAI Whisper API
+        elif self.mode == "api":
+            return self._transcribe_api(audio_data)
+
+    def _transcribe_local(self, audio_data):
+        """使用本地 faster-whisper 模型转录"""
+        try:
+            text = self.local_transcriber.transcribe(
+                audio_data,
+                language=self.source_lang
+            )
+            return text
+
+        except Exception as e:
+            print(f"[ERROR] 本地 Whisper 转录失败: {e}")
+            return None
+
+    def _transcribe_api(self, audio_data):
+        """使用 OpenAI Whisper API 转录 (带重试机制)"""
         # 1. 转换为WAV格式
         audio_file = io.BytesIO()
         with wave.open(audio_file, 'wb') as wf:
@@ -105,7 +226,7 @@ class TranscriptionThread(threading.Thread):
                 )
 
                 # 调试日志：验证转录结果
-                print(f"[DEBUG] Whisper转录: '{response[:50]}...' (长度: {len(response)})")
+                print(f"[DEBUG] Whisper API 转录: '{response[:50]}...' (长度: {len(response)})")
 
                 return response  # 直接返回字符串
 
@@ -126,7 +247,7 @@ class TranscriptionThread(threading.Thread):
 
     def translate(self, text):
         """
-        调用DeepL API翻译 (阶段2: 3次重试 + 指数退避)
+        翻译文本 (支持本地模型和DeepL API)
 
         参数:
             text (str): 原文
@@ -134,6 +255,26 @@ class TranscriptionThread(threading.Thread):
         返回:
             str: 翻译文本，失败返回None
         """
+        # 使用本地翻译模型（仅本地模式，速度快 < 100ms）
+        if self.local_translator:
+            try:
+                # 转换语言代码：DeepL格式(EN-US, ZH) -> NLLB格式(en, zh)
+                target_lang_code = self.target_lang.split('-')[0].lower()  # EN-US -> en
+                source_lang_code = self.source_lang.lower()  # zh -> zh
+
+                result = self.local_translator.translate(
+                    text,
+                    source_lang=source_lang_code,
+                    target_lang=target_lang_code
+                )
+                return result
+
+            except Exception as e:
+                print(f"[ERROR] 本地翻译失败: {e}")
+                print(f"[INFO] 回退到 DeepL API")
+                # 继续执行DeepL翻译作为回退
+
+        # 使用 DeepL API 翻译 (带重试机制)
         for attempt in range(self.max_retries):
             try:
                 # 使用用户选择的目标语言

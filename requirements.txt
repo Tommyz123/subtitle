@@ -1,13 +1,31 @@
 # 核心依赖
-openai>=1.0.0,<2.0.0          # OpenAI Whisper API 客户端
+openai>=1.0.0,<2.0.0          # OpenAI Whisper API 客户端（API模式）
 deepl>=1.16.0,<2.0.0          # DeepL 翻译 API 客户端
 pyaudio>=0.2.13               # 音频捕获
 python-dotenv>=1.0.0          # 环境变量管理
 
-# VAD 和音频处理（阶段2）
+# 本地 Whisper 模型依赖（本地模式）
+faster-whisper>=1.0.0         # 本地 Whisper 转录引擎（使用 CTranslate2）
+# 注意: faster-whisper 会自动安装以下依赖
+# - ctranslate2 (推理引擎)
+# - huggingface-hub (模型下载)
+# - tokenizers (分词器)
+# - onnxruntime (ONNX 运行时)
+
+# 本地翻译模型依赖（本地模式，可选）
+transformers>=4.30.0          # NLLB 翻译模型运行
+sentencepiece>=0.1.99         # NLLB 模型分词器
+# 注意: 使用本地翻译可大幅减少延迟（< 100ms vs DeepL 200-600ms）
+
+# VAD 和音频处理
 torch>=2.0.0,<3.0.0           # VAD 模型运行（CPU版本）
 numpy>=1.24.0,<2.0.0          # 音频数据处理
 scipy>=1.11.0,<2.0.0          # 高质量音频重采样
 
 # 可选依赖
 # torchaudio>=2.0.0           # torch 会自动安装，通常不需要单独指定
+
+# GPU 加速（可选）
+# 如需 GPU 加速本地模型，请安装对应的 CUDA 版本:
+# - CUDA 11.8: pip install torch --index-url https://download.pytorch.org/whl/cu118
+# - CUDA 12.1: pip install torch --index-url https://download.pytorch.org/whl/cu121

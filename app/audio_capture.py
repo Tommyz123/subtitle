@@ -23,24 +23,29 @@ import numpy as np
 class AudioCaptureThread(threading.Thread):
     """音频捕获线程 - 从VB-Cable捕获音频并分块 + VAD检测"""
 
-    def __init__(self, audio_queue, stop_event, enable_vad=False):
+    def __init__(self, audio_queue, stop_event, enable_vad=False, enable_playback=False, enable_smart_segmentation=False):
         """
         参数:
             audio_queue (queue.Queue): 音频数据队列
             stop_event (threading.Event): 停止信号
             enable_vad (bool): 是否启用VAD检测, 默认False
+            enable_playback (bool): 是否启用音频播放, 默认False
+                                   注意：不要与Windows"侦听此设备"同时使用
+            enable_smart_segmentation (bool): 是否启用智能分段, 默认False
         """
         super().__init__(daemon=True)
         self.audio_queue = audio_queue
         self.stop_event = stop_event
         self.enable_vad = enable_vad
+        self.enable_playback = enable_playback
+        self.enable_smart_segmentation = enable_smart_segmentation
 
         # 音频参数
         self.CHUNK = 1024                    # 每次读取的帧数
         self.FORMAT = pyaudio.paInt16        # 16-bit采样
         self.CHANNELS = 1                    # 方案H优化: 单声道（语音识别足够，减少50%文件大小）
         self.RATE = 16000                    # 方案H优化: 16kHz（Whisper训练采样率，减少66%文件大小）
-        self.CHUNK_DURATION = 5              # 每块5秒
+        self.CHUNK_DURATION = 5              # 每块5秒 (固定模式)
 
         # VAD相关
         self.vad_model = None
@@ -50,8 +55,17 @@ class AudioCaptureThread(threading.Thread):
         self.total_chunks = 0                # 总音频块数
         self.skipped_chunks = 0              # 跳过的静音块数
 
+        # 智能分段相关
+        self.speech_buffer = []              # 语音缓冲区
+        self.is_speaking = False             # 是否正在说话
+        self.silence_frames = 0              # 连续静音帧数
+        self.min_speech_duration_ms = float(os.getenv('MIN_SPEECH_DURATION', '500'))  # 最小语音段500ms
+        self.max_speech_duration_ms = float(os.getenv('MAX_SPEECH_DURATION', '10000'))  # 最大语音段10秒
+        self.silence_threshold_ms = float(os.getenv('SILENCE_THRESHOLD', '500'))  # 停顿阈值500ms
+        self.vad_sensitivity = float(os.getenv('VAD_SENSITIVITY', '0.4'))  # VAD灵敏度
+
         # 初始化VAD
-        if self.enable_vad:
+        if self.enable_vad or self.enable_smart_segmentation:
             self._init_vad()
 
     def _init_vad(self):
@@ -121,16 +135,54 @@ class AudioCaptureThread(threading.Thread):
 
         return None
 
-    def capture_chunk(self, stream):
+    def find_physical_playback_device(self, audio):
         """
-        捕获固定5秒的音频块
+        查找物理播放设备（排除虚拟设备）
 
         返回:
-            bytes: 音频数据 (48kHz, 立体声, 16-bit)
+            int: 设备索引，未找到返回None（将使用默认设备）
+        """
+        # 需要排除的虚拟设备关键词
+        virtual_keywords = ['cable', 'virtual', 'voicemeeter', 'vb-audio', 'loopback']
+
+        default_output = audio.get_default_output_device_info()
+
+        for i in range(audio.get_device_count()):
+            info = audio.get_device_info_by_index(i)
+
+            # 必须是输出设备
+            if info['maxOutputChannels'] == 0:
+                continue
+
+            device_name_lower = info['name'].lower()
+
+            # 排除虚拟设备
+            is_virtual = any(keyword in device_name_lower for keyword in virtual_keywords)
+            if is_virtual:
+                continue
+
+            # 找到物理设备
+            print(f"[INFO] 找到物理播放设备: {info['name']} (索引: {i})")
+            return i
+
+        # 如果没找到物理设备，返回None（会使用默认设备）
+        print(f"[WARNING] 未找到物理播放设备，将使用默认设备: {default_output['name']}")
+        return None
+
+    def capture_chunk(self, stream, playback_stream=None):
+        """
+        捕获固定5秒的音频块，同时播放（如果启用）
+
+        参数:
+            stream: 输入流（VB-CABLE）
+            playback_stream: 播放流（默认音频设备），可选
+
+        返回:
+            bytes: 音频数据 (16kHz, 单声道, 16-bit)
         """
         frames = []
 
-        # 计算需要读取的次数: 48000 / 1024 * 5 ≈ 234次
+        # 计算需要读取的次数: 16000 / 1024 * 5 ≈ 78次
         num_chunks = int(self.RATE / self.CHUNK * self.CHUNK_DURATION)
 
         for _ in range(num_chunks):
@@ -138,11 +190,29 @@ class AudioCaptureThread(threading.Thread):
                 # P0修复: exception_on_overflow=False 避免缓冲区溢出异常
                 data = stream.read(self.CHUNK, exception_on_overflow=False)
                 frames.append(data)
+
+                # 同时播放音频（解决VB-CABLE无声问题）
+                if self.enable_playback and playback_stream:
+                    try:
+                        playback_stream.write(data)
+                    except Exception as e:
+                        # 播放失败不影响捕获
+                        if _ == 0:  # 只打印一次，避免刷屏
+                            print(f"[WARNING] 音频播放异常: {e}")
+
             except Exception as e:
                 # P0修复: 捕获异常，填充静音数据保持时序
                 print(f"[WARNING] 音频流读取异常: {e}")
                 # 填充静音: CHUNK帧 * CHANNELS * 2字节/帧
-                frames.append(b'\x00' * (self.CHUNK * self.CHANNELS * 2))
+                silence = b'\x00' * (self.CHUNK * self.CHANNELS * 2)
+                frames.append(silence)
+
+                # 播放静音
+                if self.enable_playback and playback_stream:
+                    try:
+                        playback_stream.write(silence)
+                    except:
+                        pass
 
         # 合并所有帧
         audio_data = b''.join(frames)
@@ -205,6 +275,58 @@ class AudioCaptureThread(threading.Thread):
         """
         return self.is_silence and self.silence_count >= 2
 
+    def detect_speech_activity(self, audio_chunk):
+        """
+        智能分段: 检测音频块是否包含语音活动
+
+        参数:
+            audio_chunk (bytes): 音频数据块
+
+        返回:
+            bool: True表示有语音, False表示静音
+        """
+        try:
+            # 转换为numpy数组
+            audio_np = np.frombuffer(audio_chunk, dtype=np.int16)
+            audio_float = audio_np.astype(np.float32) / 32768.0
+
+            # 使用VAD检测
+            if self.vad_iterator:
+                speech_dict = self.vad_iterator(audio_float, return_seconds=False)
+
+                # Silero VAD返回值:
+                # - None: 语音继续中（有语音）
+                # - {'start': xxx}: 检测到语音开始（有语音）
+                # - {'end': xxx}: 检测到语音结束（静音）
+
+                # 调试日志（每100次打印一次，避免刷屏）
+                if hasattr(self, '_vad_debug_count'):
+                    self._vad_debug_count += 1
+                else:
+                    self._vad_debug_count = 0
+
+                if self._vad_debug_count % 100 == 0:
+                    print(f"[VAD-DEBUG] speech_dict={speech_dict}, is_speaking={self.is_speaking}")
+
+                # 判断逻辑:
+                # 1. None = 语音继续 → 返回True（有语音）
+                # 2. {'start': xxx} = 语音开始 → 返回True（有语音）
+                # 3. {'end': xxx} = 语音结束 → 返回False（静音）
+                if speech_dict is None:
+                    return True  # 语音继续中
+                elif 'start' in speech_dict:
+                    return True  # 检测到语音开始
+                elif 'end' in speech_dict:
+                    return False  # 检测到语音结束（静音）
+                else:
+                    return True  # 默认认为有语音
+
+            return False
+
+        except Exception as e:
+            print(f"[WARNING] 语音活动检测异常: {e}")
+            return True  # 出错时默认认为有语音，避免丢失数据
+
     def get_vad_statistics(self):
         """
         获取VAD统计信息
@@ -222,9 +344,109 @@ class AudioCaptureThread(threading.Thread):
             'savings_percent': savings
         }
 
+    def _smart_segmentation_loop(self, stream, playback_stream=None):
+        """
+        智能分段循环：根据说话节奏动态切分音频
+
+        参数:
+            stream: 输入流
+            playback_stream: 播放流（可选）
+        """
+        # 读取100ms的小块音频 (16000 Hz * 0.1s / 1024 ≈ 1.5个CHUNK)
+        chunk_100ms_frames = int(self.RATE * 0.1 / self.CHUNK)  # 每100ms需要读取的CHUNK数量
+
+        for _ in range(chunk_100ms_frames):
+            if self.stop_event.is_set():
+                return
+
+            try:
+                # 读取音频
+                data = stream.read(self.CHUNK, exception_on_overflow=False)
+
+                # 同时播放
+                if self.enable_playback and playback_stream:
+                    try:
+                        playback_stream.write(data)
+                    except:
+                        pass
+
+                # VAD检测语音活动
+                has_speech = self.detect_speech_activity(data)
+
+                if has_speech:
+                    # 检测到语音 - 积累到缓冲区
+                    self.speech_buffer.append(data)
+                    self.is_speaking = True
+                    self.silence_frames = 0
+
+                else:
+                    # 静音帧
+                    if self.is_speaking:
+                        # 正在说话 → 刚停顿
+                        self.silence_frames += 1
+                        silence_ms = self.silence_frames * 100  # 100ms per frame
+
+                        # 检查是否达到停顿阈值
+                        if silence_ms >= self.silence_threshold_ms:
+                            # 停顿时间足够 → 发送语音段
+                            self._flush_speech_buffer()
+                    else:
+                        # 一直静音，继续等待
+                        pass
+
+                # 防止语音段过长（超过最大时长强制切分）
+                buffer_duration_ms = len(self.speech_buffer) * 100
+                if buffer_duration_ms >= self.max_speech_duration_ms:
+                    print(f"[智能分段] 语音段超过最大时长 {self.max_speech_duration_ms}ms，强制切分")
+                    self._flush_speech_buffer()
+
+            except Exception as e:
+                print(f"[WARNING] 智能分段读取异常: {e}")
+                # 填充静音
+                silence = b'\x00' * (self.CHUNK * self.CHANNELS * 2)
+                if self.enable_playback and playback_stream:
+                    try:
+                        playback_stream.write(silence)
+                    except:
+                        pass
+
+    def _flush_speech_buffer(self):
+        """
+        发送缓冲区中的语音段到队列
+        """
+        if not self.speech_buffer:
+            return
+
+        # 检查最小时长
+        buffer_duration_ms = len(self.speech_buffer) * 100
+        if buffer_duration_ms < self.min_speech_duration_ms:
+            print(f"[智能分段] 语音段过短 ({buffer_duration_ms}ms < {self.min_speech_duration_ms}ms)，忽略")
+            self.speech_buffer = []
+            self.is_speaking = False
+            self.silence_frames = 0
+            return
+
+        # 合并音频块
+        audio_data = b''.join(self.speech_buffer)
+        duration_sec = buffer_duration_ms / 1000
+
+        # 发送到队列
+        try:
+            self.audio_queue.put(audio_data, timeout=1)
+            print(f"[智能分段] ✅ 检测到停顿，发送 {duration_sec:.1f}秒语音段")
+            self.total_chunks += 1
+        except queue.Full:
+            print("[WARNING] 队列已满，丢弃语音段")
+
+        # 重置缓冲区
+        self.speech_buffer = []
+        self.is_speaking = False
+        self.silence_frames = 0
+
     def run(self):
-        """线程主循环 - 持续捕获音频并放入队列"""
+        """线程主循环 - 持续捕获音频并放入队列 + 音频播放"""
         audio = pyaudio.PyAudio()
+        playback_stream = None
 
         try:
             # 1. 查找VB-Cable设备
@@ -232,7 +454,7 @@ class AudioCaptureThread(threading.Thread):
             if device_index is None:
                 raise Exception("未找到VB-Cable设备，请确保驱动已安装并重启电脑")
 
-            # 2. 打开音频流
+            # 2. 打开音频捕获流（VB-CABLE）
             stream = audio.open(
                 format=self.FORMAT,
                 channels=self.CHANNELS,
@@ -242,34 +464,71 @@ class AudioCaptureThread(threading.Thread):
                 frames_per_buffer=self.CHUNK
             )
 
-            print("[INFO] 音频捕获线程已启动")
-
-            # 3. 捕获循环
-            while not self.stop_event.is_set():
-                # 捕获5秒音频
-                audio_chunk = self.capture_chunk(stream)
-
-                # 统计
-                self.total_chunks += 1
-
-                # VAD静音检查
-                if self.enable_vad and self.is_silent_audio():
-                    self.skipped_chunks += 1
-                    if self.total_chunks % 10 == 0:  # 每10块打印一次统计
-                        stats = self.get_vad_statistics()
-                        print(f"[VAD统计] 已跳过 {stats['skipped']}/{stats['total']} 块, "
-                              f"节省 {stats['savings_percent']:.1f}% 成本")
-                    continue  # 跳过静音块
-
-                # P0修复: 使用timeout=1避免队列满时永久阻塞
+            # 3. 打开音频播放流（物理设备）- 解决VB-CABLE无声问题
+            if self.enable_playback:
                 try:
-                    self.audio_queue.put(audio_chunk, timeout=1)
-                except queue.Full:
-                    print("[WARNING] 队列已满，丢弃音频块")
+                    # 查找物理播放设备（避免音频循环）
+                    playback_device_index = self.find_physical_playback_device(audio)
 
-            # 4. 清理
+                    # 优化：使用更小的缓冲区降低播放延迟
+                    # CHUNK=1024 @ 16kHz = ~64ms延迟
+                    # 减小到 512 = ~32ms延迟（几乎无感）
+                    playback_chunk = 512  # 更小的缓冲区，更低延迟
+
+                    # 明确指定输出设备，避免输出到 CABLE Input 导致音频循环
+                    playback_stream = audio.open(
+                        format=self.FORMAT,
+                        channels=self.CHANNELS,
+                        rate=self.RATE,
+                        output=True,
+                        output_device_index=playback_device_index,  # 指定物理设备
+                        frames_per_buffer=playback_chunk  # 使用更小的缓冲区
+                    )
+                    print("[INFO] 音频播放已启用（输出到物理设备，避免音频循环）")
+                except Exception as e:
+                    print(f"[WARNING] 无法打开播放流: {e}")
+                    print("[WARNING] 将继续捕获但不播放音频")
+                    playback_stream = None
+
+            print("[INFO] 音频捕获线程已启动")
+            if self.enable_smart_segmentation:
+                print("[INFO] 智能分段模式已启用")
+
+            # 4. 捕获循环
+            while not self.stop_event.is_set():
+                if self.enable_smart_segmentation:
+                    # 智能分段模式：流式捕获，根据说话节奏动态切分
+                    self._smart_segmentation_loop(stream, playback_stream)
+                else:
+                    # 固定分段模式：传统的5秒固定切分
+                    audio_chunk = self.capture_chunk(stream, playback_stream)
+
+                    # 统计
+                    self.total_chunks += 1
+
+                    # VAD静音检查
+                    if self.enable_vad and self.is_silent_audio():
+                        self.skipped_chunks += 1
+                        if self.total_chunks % 10 == 0:  # 每10块打印一次统计
+                            stats = self.get_vad_statistics()
+                            print(f"[VAD统计] 已跳过 {stats['skipped']}/{stats['total']} 块, "
+                                  f"节省 {stats['savings_percent']:.1f}% 成本")
+                        continue  # 跳过静音块
+
+                    # P0修复: 使用timeout=1避免队列满时永久阻塞
+                    try:
+                        self.audio_queue.put(audio_chunk, timeout=1)
+                    except queue.Full:
+                        print("[WARNING] 队列已满，丢弃音频块")
+
+            # 5. 清理
             stream.stop_stream()
             stream.close()
+
+            if playback_stream:
+                playback_stream.stop_stream()
+                playback_stream.close()
+
             print("[INFO] 音频捕获线程已停止")
 
         finally:
