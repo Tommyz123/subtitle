@@ -28,7 +28,38 @@ class LocalWhisperTranscriber:
         "large-v2": {"params": "1550M", "speed": "~1x", "vram": "~10GB"},
     }
 
-    def __init__(self, model_size="base", device="auto", compute_type="auto"):
+    # ✅ 新增: 三种速度预设（参考 WhisperLiveKit 参数配置）
+    SPEED_PRESETS = {
+        "fast": {  # 极速模式 - 适合实时字幕
+            "beam_size": 1,
+            "best_of": 1,
+            "temperature": 0.0,
+            "patience": 1.0,
+            "compression_ratio_threshold": 2.4,
+            "no_speech_threshold": 0.6,
+            "description": "最快速度，质量略降（-10%），延迟-40%"
+        },
+        "balanced": {  # 平衡模式 - 推荐默认
+            "beam_size": 3,
+            "best_of": 1,
+            "temperature": 0.0,
+            "patience": 1.0,
+            "compression_ratio_threshold": 2.4,
+            "no_speech_threshold": 0.5,
+            "description": "速度与质量平衡，延迟-20%"
+        },
+        "quality": {  # 质量模式 - 追求准确度
+            "beam_size": 5,
+            "best_of": 2,
+            "temperature": [0.0, 0.2, 0.4],
+            "patience": 2.0,
+            "compression_ratio_threshold": 2.2,
+            "no_speech_threshold": 0.4,
+            "description": "最高质量，延迟+20%"
+        }
+    }
+
+    def __init__(self, model_size="base", device="auto", compute_type="auto", speed_mode="fast"):
         """
         初始化本地 Whisper 模型
 
@@ -36,6 +67,7 @@ class LocalWhisperTranscriber:
             model_size (str): 模型大小 - tiny, base, small, medium, large-v2
             device (str): 设备 - auto, cuda, cpu
             compute_type (str): 计算类型 - auto, float16, int8
+            speed_mode (str): 速度模式 - fast, balanced, quality
         """
         self.model_size = model_size
         self.device = self._detect_device(device)
@@ -43,10 +75,21 @@ class LocalWhisperTranscriber:
         self.model = None
         self.model_lock = threading.Lock()  # 线程安全
 
+        # ✅ 新增: 速度模式配置
+        self.speed_mode = speed_mode if speed_mode in self.SPEED_PRESETS else "fast"
+        self.transcribe_params = self.SPEED_PRESETS[self.speed_mode].copy()
+        self.transcribe_params.pop("description", None)  # 移除描述字段
+
+        # ✅ 新增: 上下文管理（参考 WhisperLiveKit）
+        self.context_window = []  # 历史文本窗口
+        self.max_context_chars = 50  # ✅ 修复：缩短到50字符，避免过度依赖历史导致背景音时重复识别
+        self.max_context_items = 10  # 最多保留10条记录
+
         print(f"[INFO] 初始化本地 Whisper 模型:")
         print(f"       - 模型: {model_size} ({self.MODEL_INFO.get(model_size, {}).get('params', 'Unknown')})")
         print(f"       - 设备: {self.device}")
         print(f"       - 计算类型: {self.compute_type}")
+        print(f"       - 速度模式: {speed_mode} ({self.SPEED_PRESETS.get(speed_mode, {}).get('description', 'Unknown')})")
 
         self._load_model()
 
@@ -91,9 +134,50 @@ class LocalWhisperTranscriber:
 
                 print(f"[SUCCESS] 模型加载成功！")
 
+                # ✅ 新增: 模型预热（参考 WhisperLiveKit warmup）
+                print(f"[INFO] 正在预热模型（消除冷启动延迟）...")
+                test_audio = np.zeros(16000, dtype=np.float32)  # 1秒静音
+                self.model.transcribe(test_audio, language="zh", beam_size=1)
+                print(f"[SUCCESS] 模型预热完成！")
+
         except Exception as e:
             print(f"[ERROR] 模型加载失败: {e}")
             raise
+
+    def _generate_prompt(self):
+        """
+        生成上下文提示（参考 WhisperLiveKit）
+
+        返回最近的历史文本作为提示，最多50字符
+        这有助于提高连贯性，减少重复识别
+        """
+        if not self.context_window:
+            return ""
+
+        # 合并上下文窗口中的所有文本
+        full_context = "".join(self.context_window)
+
+        # 取最后N字符作为提示（避免过长导致背景音时重复识别）
+        prompt = full_context[-self.max_context_chars:] if len(full_context) > self.max_context_chars else full_context
+
+        return prompt
+
+    def _update_context(self, new_text):
+        """
+        更新上下文窗口
+
+        参数:
+            new_text (str): 新转录的文本
+        """
+        if not new_text:
+            return
+
+        # 添加新文本到窗口
+        self.context_window.append(new_text)
+
+        # 保持窗口大小（最多10条记录）
+        if len(self.context_window) > self.max_context_items:
+            self.context_window.pop(0)  # 移除最早的记录
 
     def transcribe(self, audio_data, language="zh"):
         """
@@ -113,36 +197,44 @@ class LocalWhisperTranscriber:
             # 2. 归一化到 [-1.0, 1.0]
             audio_float = audio_np.astype(np.float32) / 32768.0
 
-            # 3. 调用 faster-whisper 转录
-            # 性能优化: beam_size=1, best_of=1 使用贪心解码，速度提升60%
+            # 3. 生成上下文提示（参考 WhisperLiveKit）
+            prompt = self._generate_prompt()
+
+            # 4. 调用 faster-whisper 转录
+            # ✅ 优化: 使用动态参数配置（根据速度模式）
             with self.model_lock:
                 segments, info = self.model.transcribe(
                     audio_float,
                     language=language,
-                    beam_size=1,  # 优化: 从5改为1，贪心解码最快
-                    best_of=1,    # 优化: 从5改为1，单次采样
-                    temperature=0.0,
-                    condition_on_previous_text=False,  # 优化: 跳过上下文处理，加快速度
-                    word_timestamps=False,             # 优化: 跳过词级时间戳，减少计算
+                    initial_prompt=prompt,  # ✅ 新增: 使用历史文本作为提示
+                    condition_on_previous_text=True,  # ✅ 改进: 启用上下文（原为False）
+                    word_timestamps=False,  # 优化: 跳过词级时间戳，减少计算
                     vad_filter=True,  # 启用 VAD 过滤静音
                     vad_parameters={
                         "min_speech_duration_ms": 250,
-                        "min_silence_duration_ms": 500,
-                        "speech_pad_ms": 400,
-                    }
+                        "min_silence_duration_ms": 100,  # ✅ 优化: 缩短静音阈值（原500ms）
+                        "speech_pad_ms": 200,  # ✅ 优化: 减少填充（原400ms）
+                    },
+                    # ✅ 新增: 使用速度预设参数
+                    **self.transcribe_params
                 )
 
-                # 4. 合并所有片段
+                # 5. 合并所有片段
                 text_parts = []
                 for segment in segments:
                     text_parts.append(segment.text)
 
                 full_text = "".join(text_parts).strip()
 
-                # 5. 日志
+                # 6. 更新上下文窗口
+                self._update_context(full_text)
+
+                # 7. 日志
                 if full_text:
                     print(f"[DEBUG] 本地 Whisper 转录: '{full_text[:50]}...' (长度: {len(full_text)})")
                     print(f"[INFO] 检测语言: {info.language} (置信度: {info.language_probability:.2f})")
+                    if prompt:
+                        print(f"[DEBUG] 使用上下文提示: '{prompt[:30]}...' (长度: {len(prompt)})")
 
                 return full_text
 

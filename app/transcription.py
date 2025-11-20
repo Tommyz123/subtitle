@@ -11,7 +11,15 @@
 - local: 使用本地 faster-whisper 模型 (离线, 免费, 需要GPU/CPU资源)
 - api: 使用 OpenAI Whisper API (在线, 付费, 无需本地资源)
 
-阶段2新增:
+阶段1优化 (已完成):
+- 上下文提示管理（减少重复识别）
+- 三种速度模式（fast/balanced/quality）
+- 模型预热（消除冷启动）
+
+阶段2优化 (新增):
+- 流式增量处理（实时增量输出，减少延迟）
+- 自动去重（避免重复文本）
+- 累积缓冲区管理（防止内存泄漏）
 - API调用3次重试 + 指数退避
 - VAD静音段跳过
 - 详细错误日志
@@ -61,13 +69,29 @@ except ImportError:
         LOCAL_TRANSLATOR_AVAILABLE = False
         print("[INFO] 本地翻译不可用（将使用 DeepL），如需安装: pip install transformers sentencepiece")
 
+# 导入流式处理器（阶段2优化）
+STREAMING_PROCESSOR_AVAILABLE = False
+StreamingWhisperProcessor = None
+
+try:
+    from .streaming_whisper import StreamingWhisperProcessor
+    STREAMING_PROCESSOR_AVAILABLE = True
+except ImportError:
+    try:
+        from streaming_whisper import StreamingWhisperProcessor
+        STREAMING_PROCESSOR_AVAILABLE = True
+    except ImportError:
+        STREAMING_PROCESSOR_AVAILABLE = False
+        print("[INFO] 流式处理器不可用")
+
 
 class TranscriptionThread(threading.Thread):
     """转录翻译线程 - 处理音频块并返回字幕 + 重试机制"""
 
     def __init__(self, audio_queue, stop_event, callback, openai_key, deepl_key,
                  source_lang="zh", target_lang="EN-US", audio_thread=None,
-                 mode="api", local_model_size="base", use_local_translation=True):
+                 mode="api", local_model_size="base", speed_mode="fast", use_local_translation=True,
+                 enable_streaming=False):
         """
         参数:
             audio_queue (queue.Queue): 音频数据队列
@@ -80,7 +104,9 @@ class TranscriptionThread(threading.Thread):
             audio_thread (AudioCaptureThread): 音频捕获线程引用 (用于VAD检查)
             mode (str): 转录模式 - "local" (本地模型) 或 "api" (OpenAI API)
             local_model_size (str): 本地模型大小 - tiny, base, small, medium, large-v2
+            speed_mode (str): 速度模式 - fast, balanced, quality (仅本地模式)
             use_local_translation (bool): 是否使用本地翻译（仅local模式，更快）
+            enable_streaming (bool): 是否启用流式增量处理（阶段2优化，仅本地模式）
         """
         super().__init__(daemon=True)
         self.audio_queue = audio_queue
@@ -95,7 +121,9 @@ class TranscriptionThread(threading.Thread):
         # 模式配置
         self.mode = mode
         self.local_model_size = local_model_size
+        self.speed_mode = speed_mode  # ✅ 新增: 速度模式
         self.use_local_translation = use_local_translation and (mode == "local")  # 仅本地模式可用
+        self.enable_streaming = enable_streaming and (mode == "local")  # ✅ 阶段2: 仅本地模式支持流式
 
         print(f"\n[INFO] 转录模式: {mode.upper()}")
 
@@ -105,14 +133,30 @@ class TranscriptionThread(threading.Thread):
             if not LOCAL_WHISPER_AVAILABLE:
                 raise RuntimeError("本地模式需要安装 faster-whisper: pip install faster-whisper")
 
-            print(f"[INFO] 正在初始化本地 Whisper 模型 ({local_model_size})...")
+            print(f"[INFO] 正在初始化本地 Whisper 模型 ({local_model_size}, {speed_mode})...")
             self.local_transcriber = LocalWhisperTranscriber(
                 model_size=local_model_size,
                 device="auto",
-                compute_type="auto"
+                compute_type="auto",
+                speed_mode=speed_mode  # ✅ 新增: 传递速度模式
             )
             self.openai_client = None
             print("[SUCCESS] 本地模型初始化完成\n")
+
+            # ✅ 阶段2: 初始化流式处理器（如果启用）
+            self.streaming_processor = None
+            if self.enable_streaming:
+                if not STREAMING_PROCESSOR_AVAILABLE:
+                    print("[WARNING] 流式处理器不可用，回退到批量处理模式")
+                    self.enable_streaming = False
+                else:
+                    print(f"[INFO] 正在初始化流式处理器...")
+                    self.streaming_processor = StreamingWhisperProcessor(
+                        model=self.local_transcriber,
+                        max_buffer_seconds=15.0,  # 最大缓冲15秒
+                        sample_rate=16000
+                    )
+                    print("[SUCCESS] 流式处理器初始化完成（增量模式）\n")
 
         elif mode == "api":
             # API 模式: 使用 OpenAI Whisper API
@@ -185,13 +229,32 @@ class TranscriptionThread(threading.Thread):
             return self._transcribe_api(audio_data)
 
     def _transcribe_local(self, audio_data):
-        """使用本地 faster-whisper 模型转录"""
+        """使用本地 faster-whisper 模型转录（支持流式处理）"""
         try:
-            text = self.local_transcriber.transcribe(
-                audio_data,
-                language=self.source_lang
-            )
-            return text
+            # ✅ 阶段2: 流式处理模式
+            if self.enable_streaming and self.streaming_processor:
+                # 将音频数据转换为numpy数组并添加到缓冲区
+                import numpy as np
+
+                # 音频数据格式: bytes (16-bit PCM) -> numpy float32
+                audio_int16 = np.frombuffer(audio_data, dtype=np.int16)
+                audio_float32 = audio_int16.astype(np.float32) / 32768.0  # 归一化到 [-1.0, 1.0]
+
+                # 添加到流式缓冲区
+                self.streaming_processor.add_audio(audio_float32)
+
+                # 增量处理（返回新增文本）
+                new_text = self.streaming_processor.process_incremental()
+
+                return new_text  # 可能是None（继续累积）或新增文本
+
+            # 批量处理模式（原有逻辑）
+            else:
+                text = self.local_transcriber.transcribe(
+                    audio_data,
+                    language=self.source_lang
+                )
+                return text
 
         except Exception as e:
             print(f"[ERROR] 本地 Whisper 转录失败: {e}")
@@ -297,7 +360,10 @@ class TranscriptionThread(threading.Thread):
 
     def run(self):
         """线程主循环 - 获取音频→转录→翻译→回调 (方案E: 取消批量处理)"""
-        print("[INFO] 转录翻译线程已启动 (并发模式: 最多6个API同时调用)")
+        if self.enable_streaming:
+            print("[INFO] 转录翻译线程已启动 (流式增量模式: 实时增量输出)")
+        else:
+            print("[INFO] 转录翻译线程已启动 (并发模式: 最多6个API同时调用)")
 
         while not self.stop_event.is_set():
             try:
@@ -321,6 +387,17 @@ class TranscriptionThread(threading.Thread):
         # 清理线程池
         print("[INFO] 转录翻译线程停止中，等待所有API调用完成...")
         self.executor.shutdown(wait=True, cancel_futures=False)
+
+        # ✅ 阶段2: 清理流式处理器
+        if self.enable_streaming and self.streaming_processor:
+            print("[INFO] 清理流式处理器...")
+            # 输出最后累积的文本（如果有）
+            final_text = self.streaming_processor.get_confirmed_text()
+            if final_text:
+                print(f"[STREAMING] 最终累积文本长度: {len(final_text)} 字符")
+            # 清空缓冲区
+            self.streaming_processor.clear()
+
         print("[INFO] 转录翻译线程已停止")
 
     def _process_audio_chunk(self, audio_data):

@@ -38,7 +38,7 @@ from desktop_subtitle import DesktopSubtitleWindow
 from ui_components import TechColors, GlowButton, StatusIndicator, StatsCard
 import time
 
-# ========== 语言配置 ==========
+# ========== 语言配置 ========== 
 # Whisper支持的源语言
 WHISPER_LANGUAGES = {
     "中文": "zh",
@@ -210,7 +210,7 @@ class SubtitleApp:
         main_container = tk.Frame(self.root, bg=TechColors.BG_PRIMARY)
         main_container.pack(fill=tk.BOTH, expand=True)
 
-        # === 顶部标题栏（科技感风格）===
+        # === 顶部标题栏（科技感风格）=== 
         header_frame = tk.Frame(main_container, bg=TechColors.BG_PRIMARY, height=70)
         header_frame.pack(fill=tk.X)
         header_frame.pack_propagate(False)
@@ -245,7 +245,7 @@ class SubtitleApp:
         )
         self.status_label.pack(side=tk.LEFT)
 
-        # === 语言选择区域（卡片样式）===
+        # === 语言选择区域（卡片样式）=== 
         card_container = tk.Frame(main_container, bg=TechColors.BG_PRIMARY)
         card_container.pack(fill=tk.X, padx=20, pady=20)
 
@@ -311,7 +311,7 @@ class SubtitleApp:
         )
         self.desktop_subtitle_check.pack(side=tk.LEFT, padx=(20, 0))
 
-        # === 转录模式选择区域（新增卡片）===
+        # === 转录模式选择区域（新增卡片）=== 
         model_card = tk.Frame(card_container, bg=TechColors.BG_CARD, highlightbackground=TechColors.BORDER_PRIMARY, highlightthickness=1)
         model_card.pack(fill=tk.X, pady=(10, 0))
 
@@ -392,6 +392,42 @@ class SubtitleApp:
         self.model_size_combo.pack(side=tk.LEFT)
         self.model_size_combo.config(state=tk.DISABLED)  # 默认禁用
 
+        # ✅ 新增: 速度模式选择（仅本地模式）
+        speed_mode_frame = tk.Frame(model_size_frame, bg=TechColors.BG_CARD)
+        speed_mode_frame.pack(side=tk.LEFT, padx=(30, 0))
+
+        tk.Label(
+            speed_mode_frame,
+            text="速度模式:",
+            font=("Microsoft YaHei", 10),
+            bg=TechColors.BG_CARD,
+            fg=TechColors.TEXT_SECONDARY
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        self.speed_mode_var = tk.StringVar(value="fast")
+        self.speed_mode_combo = ttk.Combobox(
+            speed_mode_frame,
+            textvariable=self.speed_mode_var,
+            values=["fast", "balanced", "quality"],
+            state="readonly",
+            width=10,
+            font=("Microsoft YaHei", 9),
+            style='Modern.TCombobox'
+        )
+        self.speed_mode_combo.pack(side=tk.LEFT)
+        self.speed_mode_combo.config(state=tk.DISABLED)  # 默认禁用
+
+        # ✅ 阶段2新增: 流式模式开关（仅本地模式）
+        self.enable_streaming_var = tk.BooleanVar(value=False)
+        self.enable_streaming_check = ttk.Checkbutton(
+            model_size_frame, # Changed from speed_mode_frame to model_size_frame to place it better
+            text="⚡ 流式处理",
+            variable=self.enable_streaming_var,
+            style='Modern.TCheckbutton'
+        )
+        self.enable_streaming_check.pack(side=tk.LEFT, padx=(30, 0))
+        self.enable_streaming_check.config(state=tk.DISABLED)  # 默认禁用
+
         # 提示信息标签
         self.mode_info_label = tk.Label(
             model_frame,
@@ -403,7 +439,7 @@ class SubtitleApp:
         )
         self.mode_info_label.pack(anchor=tk.W, pady=(8, 0))
 
-        # === 控制按钮区域（卡片样式）===
+        # === 控制按钮区域（卡片样式）=== 
         control_card = tk.Frame(main_container, bg=TechColors.BG_CARD, highlightbackground=TechColors.BORDER_PRIMARY, highlightthickness=1)
         control_card.pack(fill=tk.X, padx=20, pady=(0, 20))
 
@@ -453,7 +489,7 @@ class SubtitleApp:
         )
         self.stats_label.pack()
 
-        # === 文本框区域容器（使用Grid布局实现真正的响应式）===
+        # === 文本框区域容器（使用Grid布局实现真正的响应式）=== 
         textbox_container = tk.Frame(main_container, bg=TechColors.BG_PRIMARY)
         textbox_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
 
@@ -462,7 +498,7 @@ class SubtitleApp:
         textbox_container.grid_rowconfigure(1, weight=1)  # 翻译框
         textbox_container.grid_columnconfigure(0, weight=1)  # 宽度自适应
 
-        # === 原文显示区域（科技感卡片样式 - 响应式）===
+        # === 原文显示区域（科技感卡片样式 - 响应式）=== 
         original_card = tk.Frame(textbox_container, bg=TechColors.BG_CARD, highlightbackground=TechColors.BORDER_PRIMARY, highlightthickness=1)
         original_card.grid(row=0, column=0, sticky='nsew', pady=(0, 20))  # 15 → 20 更透气
 
@@ -509,7 +545,7 @@ class SubtitleApp:
         original_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0))
         self.original_text.config(yscrollcommand=original_scroll.set)
 
-        # === 翻译显示区域（科技感卡片样式 - 响应式）===
+        # === 翻译显示区域（科技感卡片样式 - 响应式）=== 
         translated_card = tk.Frame(textbox_container, bg=TechColors.BG_CARD, highlightbackground=TechColors.BORDER_PRIMARY, highlightthickness=1)
         translated_card.grid(row=1, column=0, sticky='nsew')
 
@@ -556,7 +592,7 @@ class SubtitleApp:
         translated_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0))
         self.translated_text.config(yscrollcommand=translated_scroll.set)
 
-        # === 状态监控区（实时仪表盘）===
+        # === 状态监控区（实时仪表盘）=== 
         monitor_container = tk.Frame(main_container, bg=TechColors.BG_PRIMARY)
         monitor_container.pack(fill=tk.X, padx=20, pady=(0, 20))
 
@@ -583,7 +619,7 @@ class SubtitleApp:
         self.vad_card = StatsCard(monitor_frame, "⚡", "VAD优化", show_progress=True)
         self.vad_card.grid(row=1, column=1, sticky='ew', padx=(10, 0))
 
-        # === 底部状态栏（科技感样式）===
+        # === 底部状态栏（科技感样式）=== 
         status_bar = tk.Frame(main_container, bg=TechColors.BG_SECONDARY, height=40)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
         status_bar.pack_propagate(False)
@@ -609,9 +645,16 @@ class SubtitleApp:
         if mode == "local":
             # 启用本地模型大小选择
             self.model_size_combo.config(state="readonly")
+            # ✅ 启用速度模式选择
+            self.speed_mode_combo.config(state="readonly")
+            # ✅ 阶段2: 启用流式处理开关
+            self.enable_streaming_check.config(state="normal")
 
             # 更新提示信息
             model_size = self.model_size_var.get()
+            speed_mode = self.speed_mode_var.get()
+            enable_streaming = self.enable_streaming_var.get()
+
             model_info = {
                 "tiny": "39M参数, 速度最快, 精度较低, 需要~1GB显存",
                 "base": "74M参数, 速度快, 精度适中, 需要~1GB显存 (推荐)",
@@ -619,12 +662,24 @@ class SubtitleApp:
                 "medium": "769M参数, 速度较慢, 精度很好, 需要~5GB显存",
                 "large-v2": "1550M参数, 速度最慢, 精度最佳, 需要~10GB显存"
             }
-            info_text = f"💡 本地模式: 离线运行, 免费使用\n   模型: {model_size} ({model_info.get(model_size, '未知')})"
+            speed_info = {
+                "fast": "极速 (延迟-40%, 质量-10%)",
+                "balanced": "平衡 (延迟-20%, 推荐)",
+                "quality": "质量 (延迟+20%, 精度最佳)"
+            }
+
+            # ✅ 阶段2: 添加流式处理状态到提示信息
+            streaming_status = "启用 (增量输出, 延迟-50%)" if enable_streaming else "禁用 (批量处理)"
+            info_text = f"💡 本地模式: 离线运行, 免费使用\n   模型: {model_size} ({model_info.get(model_size, '未知')})\n   速度: {speed_info.get(speed_mode, '未知')}\n   流式: {streaming_status}"
             self.mode_info_label.config(text=info_text, fg=TechColors.TEXT_SECONDARY)
 
         else:  # api
             # 禁用本地模型大小选择
             self.model_size_combo.config(state=tk.DISABLED)
+            # ✅ 禁用速度模式选择
+            self.speed_mode_combo.config(state=tk.DISABLED)
+            # ✅ 阶段2: 禁用流式处理开关
+            self.enable_streaming_check.config(state=tk.DISABLED)
 
             # 更新提示信息
             self.mode_info_label.config(
@@ -634,15 +689,19 @@ class SubtitleApp:
 
     def start_capture(self):
         """开始捕获音频 (支持VAD配置 + 语言选择 + 本地/API模式)"""
-        # 1. 获取转录模式和模型大小
+        # 1. 获取转录模式、模型大小、速度模式和流式处理开关
         transcription_mode = self.transcription_mode_var.get()
         local_model_size = self.model_size_var.get()
+        speed_mode = self.speed_mode_var.get()  # ✅ 获取速度模式
+        enable_streaming = self.enable_streaming_var.get()  # ✅ 阶段2: 获取流式模式
 
         print(f"\n{'='*60}")
         print(f"[INFO] 启动转录模式: {transcription_mode.upper()}")
         if transcription_mode == "local":
             print(f"[INFO] 本地模型大小: {local_model_size}")
-        print(f"{'='*60}\n")
+            print(f"[INFO] 速度模式: {speed_mode}")  # ✅ 显示速度模式
+            print(f"[INFO] 流式处理: {'启用' if enable_streaming else '禁用'}")  # ✅ 阶段2: 显示流式模式
+        print(f"{ '='*60}\n")
 
         # 2. 读取API Keys (根据模式判断需要哪些Key)
         openai_key = os.getenv('OPENAI_API_KEY')
@@ -741,7 +800,9 @@ class SubtitleApp:
                 audio_thread=self.audio_thread,  # ← 传递引用用于VAD检查
                 mode=transcription_mode,  # ← 转录模式 (local/api)
                 local_model_size=local_model_size,  # ← 本地模型大小
-                use_local_translation=use_local_translation  # ← 是否使用本地翻译
+                speed_mode=speed_mode,  # ✅ 速度模式 (fast/balanced/quality)
+                use_local_translation=use_local_translation,  # ← 是否使用本地翻译
+                enable_streaming=enable_streaming  # ✅ 阶段2: 流式处理开关
             )
             self.transcription_thread.daemon = True
             self.transcription_thread.start()
@@ -914,7 +975,7 @@ class SubtitleApp:
         # 选择保存路径
         filepath = filedialog.asksaveasfilename(
             defaultextension=".srt",
-            filetypes=[("SRT files", "*.srt"), ("All files", "*.* אמיתי") ]
+            filetypes=[("SRT files", "*.srt"), ("All files", "*.* אמיתי")]
         )
 
         if filepath:

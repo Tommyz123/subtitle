@@ -295,37 +295,42 @@ class AudioCaptureThread(threading.Thread):
                 speech_dict = self.vad_iterator(audio_float, return_seconds=False)
 
                 # Silero VAD返回值:
-                # - None: 语音继续中（有语音）
-                # - {'start': xxx}: 检测到语音开始（有语音）
-                # - {'end': xxx}: 检测到语音结束（静音）
+                # - None: 没有状态变化（保持当前状态）
+                # - {'start': xxx}: 检测到语音开始
+                # - {'end': xxx}: 检测到语音结束
 
-                # 调试日志（每100次打印一次，避免刷屏）
+                # 调试日志（每10次打印一次，便于调试）
                 if hasattr(self, '_vad_debug_count'):
                     self._vad_debug_count += 1
                 else:
                     self._vad_debug_count = 0
 
-                if self._vad_debug_count % 100 == 0:
-                    print(f"[VAD-DEBUG] speech_dict={speech_dict}, is_speaking={self.is_speaking}")
+                if self._vad_debug_count % 10 == 0:
+                    buffer_len = len(self.speech_buffer) / self.RATE if hasattr(self, 'speech_buffer') else 0
+                    print(f"[VAD-DEBUG] speech_dict={speech_dict}, is_speaking={self.is_speaking}, buffer={buffer_len:.1f}s")
 
-                # 判断逻辑:
-                # 1. None = 语音继续 → 返回True（有语音）
-                # 2. {'start': xxx} = 语音开始 → 返回True（有语音）
-                # 3. {'end': xxx} = 语音结束 → 返回False（静音）
+                # ✅ 修复判断逻辑:
+                # 1. None = 保持当前状态（根据is_speaking判断）
+                # 2. {'start': xxx} = 语音开始 → 更新状态并返回True
+                # 3. {'end': xxx} = 语音结束 → 更新状态并返回False
                 if speech_dict is None:
-                    return True  # 语音继续中
+                    # None时保持当前状态，而不是固定返回True
+                    return self.is_speaking
                 elif 'start' in speech_dict:
+                    self.is_speaking = True  # 更新状态
                     return True  # 检测到语音开始
                 elif 'end' in speech_dict:
-                    return False  # 检测到语音结束（静音）
+                    self.is_speaking = False  # 更新状态
+                    return False  # 检测到语音结束
                 else:
-                    return True  # 默认认为有语音
+                    # 其他情况保持当前状态
+                    return self.is_speaking
 
             return False
 
         except Exception as e:
             print(f"[WARNING] 语音活动检测异常: {e}")
-            return True  # 出错时默认认为有语音，避免丢失数据
+            return False  # ✅ 修复：出错时返回False，避免处理错误数据
 
     def get_vad_statistics(self):
         """
