@@ -82,6 +82,13 @@ class DesktopSubtitleWindow:
         self.current_alpha = 1.0  # 当前透明度
         self.fade_timer = None
 
+        # P4优化: 字体缓存，避免重复创建
+        self._font_cache = {}
+
+        # P4优化: 上次渲染的文本，用于跳过不必要的重绘
+        self._last_rendered_translation = None
+        self._last_rendered_original = None
+
         # 创建内容区域
         self._create_widgets()
 
@@ -260,9 +267,27 @@ class DesktopSubtitleWindow:
             return bbox[3] - bbox[1] + 20
         return 30  # 默认最小高度
 
+    def _get_cached_font(self, family, size, weight="normal"):
+        """
+        P4优化: 获取缓存的字体对象，避免重复创建
+
+        参数:
+            family: 字体家族
+            size: 字体大小
+            weight: 字体粗细
+
+        返回:
+            Font对象
+        """
+        cache_key = (family, size, weight)
+        if cache_key not in self._font_cache:
+            self._font_cache[cache_key] = font.Font(family=family, size=size, weight=weight)
+        return self._font_cache[cache_key]
+
     def _draw_text_with_outline(self, canvas, text, font_obj, text_color, outline_color, bg_color='#000000', bg_alpha=0.8):
         """
         在Canvas上绘制带描边的文字（Netflix风格：文字有半透明背景框）
+        P4优化: 减少Canvas项数量，简化背景渲染
 
         参数:
             canvas: Canvas对象
@@ -273,14 +298,9 @@ class DesktopSubtitleWindow:
             bg_color: 背景框颜色（默认黑色）
             bg_alpha: 背景框透明度（0.0-1.0，默认0.8）
         """
-        # 判断是哪个Canvas（用于调试）
-        canvas_name = "翻译" if canvas == self.translation_canvas else "原文"
-        print(f"[DRAW] _draw_text_with_outline被调用: canvas={canvas_name}, text='{text[:30] if text else '(空)'}...', text_color={text_color}")
-
         canvas.delete('all')
 
         if not text:  # 如果没有文本，不绘制
-            print(f"[DRAW] {canvas_name}Canvas: 文本为空，跳过绘制")
             return
 
         # 强制更新Canvas尺寸
@@ -288,10 +308,7 @@ class DesktopSubtitleWindow:
         width = canvas.winfo_width()
         height = canvas.winfo_height()
 
-        print(f"[DRAW] {canvas_name}Canvas尺寸: width={width}px, height={height}px")
-
         if width <= 1 or height <= 1:
-            print(f"[DRAW] {canvas_name}Canvas尺寸无效，跳过绘制")
             return
 
         # 中心位置
@@ -324,74 +341,26 @@ class DesktopSubtitleWindow:
             bg_y2 = bbox[3] + padding_y
 
             # 计算半透明黑色（通过混合颜色模拟透明度）
-            # 使用较深的灰色模拟半透明黑色效果
-            alpha_int = int(bg_alpha * 255)
-            # 将hex转为RGB
             r = int(bg_color[1:3], 16)
             g = int(bg_color[3:5], 16)
             b = int(bg_color[5:7], 16)
 
-            # 模拟半透明效果（与绿色透明键混合）
-            # 绿色背景是(0,255,0)，黑色背景混合后变成深灰绿色
+            # 模拟半透明效果
             if bg_alpha < 1.0:
                 bg_r = int(r * bg_alpha + 0 * (1 - bg_alpha))
-                bg_g = int(g * bg_alpha + 50 * (1 - bg_alpha))  # 稍微偏绿以避免完全透明
+                bg_g = int(g * bg_alpha + 50 * (1 - bg_alpha))
                 bg_b = int(b * bg_alpha + 0 * (1 - bg_alpha))
                 bg_mixed = f'#{bg_r:02x}{bg_g:02x}{bg_b:02x}'
             else:
                 bg_mixed = bg_color
 
-            # 绘制圆角矩形背景（通过多个椭圆和矩形组合）
+            # P4优化: 简化背景渲染 - 用单个圆角矩形替代多个图形
+            # 使用 create_polygon 绘制圆角矩形（减少Canvas项数量：6个→1个）
             corner_radius = 8
+            self._draw_rounded_rect(canvas, bg_x1, bg_y1, bg_x2, bg_y2, corner_radius, bg_mixed)
 
-            # 主矩形（横向）
-            canvas.create_rectangle(
-                bg_x1 + corner_radius, bg_y1,
-                bg_x2 - corner_radius, bg_y2,
-                fill=bg_mixed,
-                outline=''
-            )
-
-            # 主矩形（纵向）
-            canvas.create_rectangle(
-                bg_x1, bg_y1 + corner_radius,
-                bg_x2, bg_y2 - corner_radius,
-                fill=bg_mixed,
-                outline=''
-            )
-
-            # 四个圆角
-            # 左上
-            canvas.create_oval(
-                bg_x1, bg_y1,
-                bg_x1 + corner_radius * 2, bg_y1 + corner_radius * 2,
-                fill=bg_mixed,
-                outline=''
-            )
-            # 右上
-            canvas.create_oval(
-                bg_x2 - corner_radius * 2, bg_y1,
-                bg_x2, bg_y1 + corner_radius * 2,
-                fill=bg_mixed,
-                outline=''
-            )
-            # 左下
-            canvas.create_oval(
-                bg_x1, bg_y2 - corner_radius * 2,
-                bg_x1 + corner_radius * 2, bg_y2,
-                fill=bg_mixed,
-                outline=''
-            )
-            # 右下
-            canvas.create_oval(
-                bg_x2 - corner_radius * 2, bg_y2 - corner_radius * 2,
-                bg_x2, bg_y2,
-                fill=bg_mixed,
-                outline=''
-            )
-
-        # 绘制描边（更细的描边，Netflix风格）
-        offsets = [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+        # P4优化: 减少描边数量（4个→2个，对角线描边效果相似）
+        offsets = [(-1, -1), (1, 1)]
         for dx, dy in offsets:
             canvas.create_text(
                 x + dx, y + dy,
@@ -414,7 +383,32 @@ class DesktopSubtitleWindow:
             anchor=tk.CENTER
         )
 
-        print(f"[DRAW] {canvas_name}Canvas: 绘制完成 ✓")
+    def _draw_rounded_rect(self, canvas, x1, y1, x2, y2, radius, fill_color):
+        """
+        P4优化: 绘制圆角矩形（使用polygon，单个Canvas项）
+
+        参数:
+            canvas: Canvas对象
+            x1, y1, x2, y2: 矩形坐标
+            radius: 圆角半径
+            fill_color: 填充颜色
+        """
+        # 使用多边形近似圆角矩形
+        points = [
+            x1 + radius, y1,
+            x2 - radius, y1,
+            x2, y1,
+            x2, y1 + radius,
+            x2, y2 - radius,
+            x2, y2,
+            x2 - radius, y2,
+            x1 + radius, y2,
+            x1, y2,
+            x1, y2 - radius,
+            x1, y1 + radius,
+            x1, y1,
+        ]
+        canvas.create_polygon(points, fill=fill_color, outline='', smooth=True)
 
     def update_subtitle(self, original, translation):
         """
@@ -487,9 +481,9 @@ class DesktopSubtitleWindow:
         self.current_translation = translation
 
         try:
-            # 创建字体对象（使用无衬线字体，类似YouTube的Roboto）
-            translation_font = font.Font(family="Microsoft YaHei", size=self.font_size_translation, weight="bold")
-            original_font = font.Font(family="Arial", size=self.font_size_original, weight="normal")
+            # P4优化: 使用缓存的字体对象，避免重复创建
+            translation_font = self._get_cached_font("Microsoft YaHei", self.font_size_translation, "bold")
+            original_font = self._get_cached_font("Arial", self.font_size_original, "normal")
 
             # 绘制翻译（Netflix风格：白色文字 + 黑色半透明背景框）
             self._draw_text_with_outline(

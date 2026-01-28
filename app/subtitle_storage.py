@@ -109,6 +109,20 @@ class SubtitleStorage:
 
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
+    def get_subtitles_copy(self):
+        """
+        P9优化: 获取字幕列表的浅拷贝
+
+        用于锁粒度优化：锁内快速复制（微秒级），文件IO在锁外
+
+        返回:
+            list: 字幕列表的副本
+
+        注意:
+            - 必须在外部使用Lock保护
+        """
+        return self.subtitles.copy()
+
     def clear(self):
         """
         清空字幕列表并重置时间

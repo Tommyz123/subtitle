@@ -257,7 +257,48 @@ class LocalWhisperTranscriber:
             if self.model:
                 del self.model
                 self.model = None
-                print("[INFO] 模型已卸载")
+
+                # P13优化: 强制清理GPU内存
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        print("[INFO] GPU缓存已清理")
+                except:
+                    pass
+
+                # 清理上下文窗口
+                self.context_window = []
+
+                print("[INFO] Whisper模型已卸载")
+
+    # P13优化: 上下文管理器支持，确保资源正确释放
+    def __enter__(self):
+        """上下文管理器入口"""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        上下文管理器出口 - 自动卸载模型
+
+        使用方式:
+            with LocalWhisperTranscriber(...) as transcriber:
+                transcriber.transcribe(audio)
+            # 自动释放资源
+        """
+        self.unload_model()
+        return False  # 不抑制异常
+
+    def __del__(self):
+        """
+        析构函数 - 对象销毁时自动卸载模型
+
+        这是最后的安全网，确保即使没有使用上下文管理器也能释放资源
+        """
+        try:
+            self.unload_model()
+        except:
+            pass  # 忽略析构时的错误
 
 
 def test_local_whisper():

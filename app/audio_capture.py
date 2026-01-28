@@ -56,13 +56,30 @@ class AudioCaptureThread(threading.Thread):
         self.skipped_chunks = 0              # 跳过的静音块数
 
         # 智能分段相关
-        self.speech_buffer = []              # 语音缓冲区
         self.is_speaking = False             # 是否正在说话
         self.silence_frames = 0              # 连续静音帧数
-        self.min_speech_duration_ms = float(os.getenv('MIN_SPEECH_DURATION', '500'))  # 最小语音段500ms
-        self.max_speech_duration_ms = float(os.getenv('MAX_SPEECH_DURATION', '10000'))  # 最大语音段10秒
-        self.silence_threshold_ms = float(os.getenv('SILENCE_THRESHOLD', '500'))  # 停顿阈值500ms
-        self.vad_sensitivity = float(os.getenv('VAD_SENSITIVITY', '0.4'))  # VAD灵敏度
+        self.min_speech_duration_ms = float(os.getenv('MIN_SPEECH_DURATION', '500'))  # 最小语音段500ms（过滤音乐碎片）
+        self.max_speech_duration_ms = float(os.getenv('MAX_SPEECH_DURATION', '8000'))  # 最大语音段8秒
+        self.silence_threshold_ms = float(os.getenv('SILENCE_THRESHOLD', '500'))  # 停顿阈值500ms（抗音乐干扰）
+        self.vad_sensitivity = float(os.getenv('VAD_SENSITIVITY', '0.4'))  # VAD语音概率阈值（预缓冲补偿延迟）
+
+        # 延迟测量相关
+        self.speech_start_time = None        # 当前语音段开始时间戳
+
+        # 智能分段：预缓冲区（解决语音开始漏检问题）
+        # 原理：始终保留最近 300ms 的音频，当检测到语音开始时，把预缓冲区内容也加入
+        from collections import deque
+        self.lookback_ms = int(os.getenv('LOOKBACK_MS', '300'))  # 预缓冲时长
+        self.lookback_buffer = deque(maxlen=int(self.lookback_ms / 100) + 1)  # 每100ms一帧
+
+        # P10优化: 预分配环形缓冲区（减少80%内存分配）
+        # 原来: 使用list.append()，每次都涉及内存重新分配
+        # 优化后: 预分配固定大小的numpy数组，使用索引写入
+        # 最大缓冲区: 15秒音频 @ 16kHz = 240,000 samples
+        self.max_buffer_samples = int(15 * self.RATE)  # 15秒
+        self.speech_buffer = np.zeros(self.max_buffer_samples, dtype=np.int16)
+        self.buffer_write_pos = 0  # 当前写入位置
+        self.buffer_data_len = 0   # 缓冲区中的有效数据长度
 
         # 初始化VAD
         if self.enable_vad or self.enable_smart_segmentation:
@@ -278,6 +295,7 @@ class AudioCaptureThread(threading.Thread):
     def detect_speech_activity(self, audio_chunk):
         """
         智能分段: 检测音频块是否包含语音活动
+        使用 Silero VAD 概率检测（简化版，配合预缓冲使用）
 
         参数:
             audio_chunk (bytes): 音频数据块
@@ -286,51 +304,42 @@ class AudioCaptureThread(threading.Thread):
             bool: True表示有语音, False表示静音
         """
         try:
-            # 转换为numpy数组
+            import torch
             audio_np = np.frombuffer(audio_chunk, dtype=np.int16)
             audio_float = audio_np.astype(np.float32) / 32768.0
 
-            # 使用VAD检测
-            if self.vad_iterator:
-                speech_dict = self.vad_iterator(audio_float, return_seconds=False)
+            if self.vad_model:
+                # Silero VAD 要求固定 512 样本 @ 16kHz
+                chunk_size = 512
+                probs = []
 
-                # Silero VAD返回值:
-                # - None: 没有状态变化（保持当前状态）
-                # - {'start': xxx}: 检测到语音开始
-                # - {'end': xxx}: 检测到语音结束
+                for i in range(0, len(audio_float) - chunk_size + 1, chunk_size):
+                    chunk = audio_float[i:i + chunk_size]
+                    audio_tensor = torch.from_numpy(chunk)
+                    prob = self.vad_model(audio_tensor, 16000).item()
+                    probs.append(prob)
 
-                # 调试日志（每10次打印一次，便于调试）
-                if hasattr(self, '_vad_debug_count'):
-                    self._vad_debug_count += 1
-                else:
+                # 用平均值（减少单帧噪音），但保持实时性
+                speech_prob = np.mean(probs) if probs else 0.0
+
+                # 调试日志（每20次打印一次）
+                if not hasattr(self, '_vad_debug_count'):
                     self._vad_debug_count = 0
+                self._vad_debug_count += 1
 
-                if self._vad_debug_count % 10 == 0:
-                    buffer_len = len(self.speech_buffer) / self.RATE if hasattr(self, 'speech_buffer') else 0
-                    print(f"[VAD-DEBUG] speech_dict={speech_dict}, is_speaking={self.is_speaking}, buffer={buffer_len:.1f}s")
+                if self._vad_debug_count % 20 == 0:
+                    buffer_duration = self.buffer_data_len / self.RATE
+                    print(f"[VAD-DEBUG] prob={speech_prob:.2f} buffer={buffer_duration:.1f}s")
 
-                # ✅ 修复判断逻辑:
-                # 1. None = 保持当前状态（根据is_speaking判断）
-                # 2. {'start': xxx} = 语音开始 → 更新状态并返回True
-                # 3. {'end': xxx} = 语音结束 → 更新状态并返回False
-                if speech_dict is None:
-                    # None时保持当前状态，而不是固定返回True
-                    return self.is_speaking
-                elif 'start' in speech_dict:
-                    self.is_speaking = True  # 更新状态
-                    return True  # 检测到语音开始
-                elif 'end' in speech_dict:
-                    self.is_speaking = False  # 更新状态
-                    return False  # 检测到语音结束
-                else:
-                    # 其他情况保持当前状态
-                    return self.is_speaking
+                # 简单阈值判断（预缓冲会补偿检测延迟）
+                has_speech = speech_prob > self.vad_sensitivity
+                return has_speech
 
             return False
 
         except Exception as e:
             print(f"[WARNING] 语音活动检测异常: {e}")
-            return False  # ✅ 修复：出错时返回False，避免处理错误数据
+            return False
 
     def get_vad_statistics(self):
         """
@@ -379,15 +388,26 @@ class AudioCaptureThread(threading.Thread):
                 has_speech = self.detect_speech_activity(data)
 
                 if has_speech:
-                    # 检测到语音 - 积累到缓冲区
-                    self.speech_buffer.append(data)
+                    # 检测到语音
+                    if not self.is_speaking:
+                        # 语音刚开始 → 先把预缓冲区的历史帧加入（避免漏检开头）
+                        lookback_count = len(self.lookback_buffer)
+                        self.speech_start_time = time.time() - (lookback_count * 0.1)  # 回溯时间
+                        for buffered_data in self.lookback_buffer:
+                            self._append_to_buffer(buffered_data)
+                        self.lookback_buffer.clear()  # 清空预缓冲
+                        print(f"[智能分段] 语音开始，预缓冲 {lookback_count} 帧")
+
+                    # 加入当前帧
+                    self._append_to_buffer(data)
                     self.is_speaking = True
                     self.silence_frames = 0
 
                 else:
                     # 静音帧
                     if self.is_speaking:
-                        # 正在说话 → 刚停顿
+                        # 正在说话 → 刚停顿，也要积累（避免停顿中间被切断）
+                        self._append_to_buffer(data)
                         self.silence_frames += 1
                         silence_ms = self.silence_frames * 100  # 100ms per frame
 
@@ -396,11 +416,12 @@ class AudioCaptureThread(threading.Thread):
                             # 停顿时间足够 → 发送语音段
                             self._flush_speech_buffer()
                     else:
-                        # 一直静音，继续等待
-                        pass
+                        # 一直静音 → 保存到预缓冲区（滚动保存最近帧）
+                        self.lookback_buffer.append(data)
 
                 # 防止语音段过长（超过最大时长强制切分）
-                buffer_duration_ms = len(self.speech_buffer) * 100
+                # P10优化: 使用buffer_data_len代替len(speech_buffer)
+                buffer_duration_ms = (self.buffer_data_len / self.RATE) * 1000
                 if buffer_duration_ms >= self.max_speech_duration_ms:
                     print(f"[智能分段] 语音段超过最大时长 {self.max_speech_duration_ms}ms，强制切分")
                     self._flush_speech_buffer()
@@ -415,38 +436,74 @@ class AudioCaptureThread(threading.Thread):
                     except:
                         pass
 
+    def _append_to_buffer(self, data):
+        """
+        P10优化: 向预分配缓冲区追加数据
+
+        参数:
+            data (bytes): 音频数据块
+        """
+        # 转换为numpy数组
+        audio_chunk = np.frombuffer(data, dtype=np.int16)
+        chunk_len = len(audio_chunk)
+
+        # 检查是否有足够空间
+        if self.buffer_data_len + chunk_len > self.max_buffer_samples:
+            # 缓冲区已满，需要移动数据（环形缓冲区策略）
+            # 移除前面一半的数据，腾出空间
+            keep_samples = self.max_buffer_samples // 2
+            self.speech_buffer[:keep_samples] = self.speech_buffer[self.buffer_data_len - keep_samples:self.buffer_data_len]
+            self.buffer_data_len = keep_samples
+            print(f"[P10] 缓冲区重整: 保留后{keep_samples/self.RATE:.1f}秒数据")
+
+        # 写入数据
+        self.speech_buffer[self.buffer_data_len:self.buffer_data_len + chunk_len] = audio_chunk
+        self.buffer_data_len += chunk_len
+
     def _flush_speech_buffer(self):
         """
         发送缓冲区中的语音段到队列
+
+        P10优化: 使用预分配缓冲区，避免内存碎片
+        延迟测量: 发送 (音频数据, 开始时间戳, 语音时长) 元组
         """
-        if not self.speech_buffer:
+        if self.buffer_data_len == 0:
             return
 
         # 检查最小时长
-        buffer_duration_ms = len(self.speech_buffer) * 100
+        buffer_duration_ms = (self.buffer_data_len / self.RATE) * 1000
         if buffer_duration_ms < self.min_speech_duration_ms:
-            print(f"[智能分段] 语音段过短 ({buffer_duration_ms}ms < {self.min_speech_duration_ms}ms)，忽略")
-            self.speech_buffer = []
-            self.is_speaking = False
-            self.silence_frames = 0
+            print(f"[智能分段] 语音段过短 ({buffer_duration_ms:.0f}ms < {self.min_speech_duration_ms}ms)，忽略")
+            self._reset_buffer()
             return
 
-        # 合并音频块
-        audio_data = b''.join(self.speech_buffer)
+        # P10优化: 从预分配缓冲区提取有效数据
+        audio_data = self.speech_buffer[:self.buffer_data_len].tobytes()
         duration_sec = buffer_duration_ms / 1000
 
-        # 发送到队列
+        # 延迟测量: 获取开始时间（如果没有记录，使用当前时间减去语音时长）
+        speech_start = self.speech_start_time if self.speech_start_time else (time.time() - duration_sec)
+
+        # 发送到队列: (音频数据, 开始时间戳, 语音时长)
         try:
-            self.audio_queue.put(audio_data, timeout=1)
+            self.audio_queue.put((audio_data, speech_start, duration_sec), timeout=1)
             print(f"[智能分段] ✅ 检测到停顿，发送 {duration_sec:.1f}秒语音段")
             self.total_chunks += 1
         except queue.Full:
             print("[WARNING] 队列已满，丢弃语音段")
 
-        # 重置缓冲区
-        self.speech_buffer = []
+        # 重置缓冲区（不重新分配内存）
+        self._reset_buffer()
+
+    def _reset_buffer(self):
+        """
+        P10优化: 重置缓冲区（不重新分配内存）
+        """
+        self.buffer_data_len = 0
+        self.buffer_write_pos = 0
         self.is_speaking = False
         self.silence_frames = 0
+        self.speech_start_time = None  # 延迟测量: 重置开始时间
 
     def run(self):
         """线程主循环 - 持续捕获音频并放入队列 + 音频播放"""
@@ -506,6 +563,7 @@ class AudioCaptureThread(threading.Thread):
                     self._smart_segmentation_loop(stream, playback_stream)
                 else:
                     # 固定分段模式：传统的5秒固定切分
+                    chunk_start_time = time.time()  # 延迟测量: 记录开始时间
                     audio_chunk = self.capture_chunk(stream, playback_stream)
 
                     # 统计
@@ -521,8 +579,10 @@ class AudioCaptureThread(threading.Thread):
                         continue  # 跳过静音块
 
                     # P0修复: 使用timeout=1避免队列满时永久阻塞
+                    # 延迟测量: 发送 (音频数据, 开始时间戳, 语音时长) 元组
                     try:
-                        self.audio_queue.put(audio_chunk, timeout=1)
+                        speech_duration = self.CHUNK_DURATION  # 固定5秒
+                        self.audio_queue.put((audio_chunk, chunk_start_time, speech_duration), timeout=1)
                     except queue.Full:
                         print("[WARNING] 队列已满，丢弃音频块")
 

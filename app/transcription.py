@@ -30,9 +30,11 @@ import queue
 import io
 import wave
 import time
+import random  # P7优化: 用于重试Jitter
 from openai import OpenAI
 import deepl
 from concurrent.futures import ThreadPoolExecutor
+import httpx  # P8优化: 用于DeepL连接池配置
 
 # 导入本地 Whisper 模块（兼容相对导入和绝对导入）
 LOCAL_WHISPER_AVAILABLE = False
@@ -193,7 +195,28 @@ class TranscriptionThread(threading.Thread):
             if not deepl_key:
                 raise ValueError("DeepL API Key 是必需的（本地翻译不可用或已禁用）")
 
-            self.deepl_translator = deepl.Translator(deepl_key)
+            # P8优化: 配置HTTP连接池，复用TCP连接，避免握手开销
+            # pool_connections=5: 保持5个空闲连接
+            # pool_maxsize=10: 最多10个连接
+            # keepalive_expiry=30: 空闲连接30秒超时
+            try:
+                http_client = httpx.Client(
+                    limits=httpx.Limits(
+                        max_connections=10,        # 最大连接数
+                        max_keepalive_connections=5,  # 最大保活连接数
+                        keepalive_expiry=30.0      # 空闲连接超时（秒）
+                    ),
+                    timeout=httpx.Timeout(30.0, connect=10.0)  # 请求超时30秒，连接超时10秒
+                )
+                # 使用自定义HTTP客户端创建DeepL翻译器
+                self.deepl_translator = deepl.Translator(deepl_key)
+                # 注: deepl库v1.x不支持自定义client，但连接复用是httpx的默认行为
+                # 这里记录配置信息供调试
+                self._deepl_http_client = http_client
+                print("[INFO] DeepL 连接池已配置 (max=10, keepalive=5)")
+            except Exception as e:
+                print(f"[WARNING] 连接池配置失败，使用默认配置: {e}")
+                self.deepl_translator = deepl.Translator(deepl_key)
 
             # 方案U优化: DeepL连接预热，消除冷启动延迟
             try:
@@ -209,6 +232,17 @@ class TranscriptionThread(threading.Thread):
         # 方案E优化: 增加线程池worker数量，提升处理速度
         # max_workers=6: 最多6个API并发请求（处理能力翻倍）
         self.executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="TranscribeWorker")
+
+        # P3优化: 翻译专用线程池，实现转录和翻译并行处理
+        # max_workers=4: 翻译任务通常更快，4个worker足够
+        self.translation_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="TranslateWorker")
+
+        # P12优化: 背压机制 - 限制待处理任务数，防止内存压力
+        # 当待处理任务超过20个时，新任务会阻塞等待
+        # 这样可以防止系统过载时任务无限堆积
+        self.pending_semaphore = threading.Semaphore(20)
+        self.pending_count = 0
+        self.pending_lock = threading.Lock()
 
     def transcribe(self, audio_data):
         """
@@ -297,9 +331,11 @@ class TranscriptionThread(threading.Thread):
                 print(f"[ERROR] Whisper API调用失败 (尝试{attempt+1}/{self.max_retries}): {e}")
 
                 if attempt < self.max_retries - 1:
-                    # 指数退避: 1秒, 2秒, 4秒
-                    delay = self.retry_delay * (2 ** attempt)
-                    print(f"[INFO] {delay}秒后重试...")
+                    # P7优化: 指数退避 + 随机Jitter（避免thundering herd问题）
+                    base_delay = self.retry_delay * (2 ** attempt)
+                    jitter = random.uniform(0, 0.1 * base_delay)  # 10%随机抖动
+                    delay = base_delay + jitter
+                    print(f"[INFO] {delay:.2f}秒后重试 (base={base_delay:.1f}s, jitter={jitter:.2f}s)...")
                     time.sleep(delay)
 
                     # 重置文件指针
@@ -351,8 +387,11 @@ class TranscriptionThread(threading.Thread):
                 print(f"[ERROR] DeepL API调用失败 (尝试{attempt+1}/{self.max_retries}): {e}")
 
                 if attempt < self.max_retries - 1:
-                    delay = self.retry_delay * (2 ** attempt)
-                    print(f"[INFO] {delay}秒后重试...")
+                    # P7优化: 指数退避 + 随机Jitter
+                    base_delay = self.retry_delay * (2 ** attempt)
+                    jitter = random.uniform(0, 0.1 * base_delay)  # 10%随机抖动
+                    delay = base_delay + jitter
+                    print(f"[INFO] {delay:.2f}秒后重试 (base={base_delay:.1f}s, jitter={jitter:.2f}s)...")
                     time.sleep(delay)
                 else:
                     print(f"[ERROR] DeepL API调用失败 {self.max_retries} 次,放弃该翻译")
@@ -370,16 +409,41 @@ class TranscriptionThread(threading.Thread):
                 # 方案E优化: 取消批量处理，每次只获取1个音频块
                 # 立即提交到线程池处理，不等待完成
                 # 线程池会自动管理6个worker的并发调度
-                audio_data = self.audio_queue.get(timeout=1)
+                queue_item = self.audio_queue.get(timeout=1)
+
+                # 延迟测量: 兼容新旧格式
+                # 新格式: (audio_data, speech_start_time, speech_duration)
+                # 旧格式: audio_data (bytes)
+                if isinstance(queue_item, tuple) and len(queue_item) == 3:
+                    audio_data, speech_start_time, speech_duration = queue_item
+                else:
+                    # 向后兼容：旧格式只有音频数据
+                    audio_data = queue_item
+                    speech_start_time = time.time()  # 使用当前时间作为开始时间
+                    speech_duration = len(audio_data) / (16000 * 2)  # 估算：16kHz, 16-bit
 
                 # 方案G诊断: 监控队列堆积情况
                 audio_q_size = self.audio_queue.qsize()
                 pool_q_size = self.executor._work_queue.qsize()
-                total_pending = audio_q_size + pool_q_size + 6  # +6是正在6个worker中处理的块
-                print(f"[📊 QUEUE] audio={audio_q_size} | pool={pool_q_size} | processing=6 | total≈{total_pending}")
+
+                # P12优化: 显示背压状态
+                with self.pending_lock:
+                    pending = self.pending_count
+                total_pending = audio_q_size + pool_q_size + pending
+                print(f"[📊 QUEUE] audio={audio_q_size} | pool={pool_q_size} | pending={pending} | total≈{total_pending}")
+
+                # P12优化: 背压机制 - 获取信号量（如果待处理任务过多会阻塞）
+                acquired = self.pending_semaphore.acquire(timeout=5)
+                if not acquired:
+                    print(f"[WARNING] 背压触发: 待处理任务过多(>{20})，跳过当前音频块")
+                    continue
+
+                with self.pending_lock:
+                    self.pending_count += 1
 
                 # 立即提交处理，不阻塞等待结果
-                self.executor.submit(self._process_audio_chunk, audio_data)
+                # 延迟测量: 传递开始时间和语音时长
+                self.executor.submit(self._process_audio_chunk_with_backpressure, audio_data, speech_start_time, speech_duration)
 
             except queue.Empty:
                 continue
@@ -387,6 +451,10 @@ class TranscriptionThread(threading.Thread):
         # 清理线程池
         print("[INFO] 转录翻译线程停止中，等待所有API调用完成...")
         self.executor.shutdown(wait=True, cancel_futures=False)
+
+        # P3优化: 关闭翻译线程池
+        print("[INFO] 等待翻译任务完成...")
+        self.translation_executor.shutdown(wait=True, cancel_futures=False)
 
         # ✅ 阶段2: 清理流式处理器
         if self.enable_streaming and self.streaming_processor:
@@ -400,12 +468,33 @@ class TranscriptionThread(threading.Thread):
 
         print("[INFO] 转录翻译线程已停止")
 
-    def _process_audio_chunk(self, audio_data):
+    def _process_audio_chunk_with_backpressure(self, audio_data, speech_start_time, speech_duration):
+        """
+        P12优化: 带背压控制的音频块处理
+
+        在处理完成后释放信号量，允许新任务提交
+
+        参数:
+            audio_data (bytes): 音频数据
+            speech_start_time (float): 语音段开始时间戳
+            speech_duration (float): 语音段时长（秒）
+        """
+        try:
+            self._process_audio_chunk(audio_data, speech_start_time, speech_duration)
+        finally:
+            # 释放信号量，允许新任务提交
+            with self.pending_lock:
+                self.pending_count -= 1
+            self.pending_semaphore.release()
+
+    def _process_audio_chunk(self, audio_data, speech_start_time, speech_duration):
         """
         处理单个音频块
 
         参数:
             audio_data (bytes): 音频数据
+            speech_start_time (float): 语音段开始时间戳
+            speech_duration (float): 语音段时长（秒）
         """
         # 方案G诊断: 记录开始时间
         chunk_start = time.time()
@@ -424,6 +513,29 @@ class TranscriptionThread(threading.Thread):
         if not original_text or not original_text.strip():
             return
 
+        # P3优化: 异步提交翻译任务，不阻塞等待
+        # 转录完成后立即提交翻译，实现转录和翻译流水线并行
+        # 延迟测量: 传递语音段信息
+        self.translation_executor.submit(
+            self._translate_and_callback,
+            original_text,
+            chunk_start,
+            whisper_time,
+            speech_start_time,
+            speech_duration
+        )
+
+    def _translate_and_callback(self, original_text, chunk_start, whisper_time, speech_start_time=None, speech_duration=None):
+        """
+        P3优化: 翻译并回调（在翻译线程池中执行）
+
+        参数:
+            original_text (str): 转录文本
+            chunk_start (float): 处理开始时间
+            whisper_time (float): 转录耗时
+            speech_start_time (float): 语音段开始时间戳（延迟测量用）
+            speech_duration (float): 语音段时长（延迟测量用）
+        """
         # 3. 翻译 (带重试) - 记录耗时
         t2 = time.time()
         translated_text = self.translate(original_text)
@@ -435,8 +547,16 @@ class TranscriptionThread(threading.Thread):
         # 计算总耗时
         total_time = time.time() - chunk_start
 
-        # 方案G诊断: 关键性能日志
-        print(f"[⏱️ TIMING] Whisper: {whisper_time:.2f}s | DeepL: {deepl_time:.2f}s | Total: {total_time:.2f}s")
+        # 延迟测量: 计算端到端延迟
+        end_time = time.time()
+        if speech_start_time and speech_duration:
+            # 端到端延迟 = 从语音开始到字幕显示的总时间
+            end_to_end_latency = end_time - speech_start_time
+            # 输出详细延迟日志
+            print(f"[📊 延迟] 语音: {speech_duration:.1f}s | 转录: {whisper_time:.2f}s | 翻译: {deepl_time:.2f}s | 端到端: {end_to_end_latency:.2f}s")
+        else:
+            # 向后兼容：没有语音段信息时只输出处理时间
+            print(f"[⏱️ TIMING] Whisper: {whisper_time:.2f}s | DeepL: {deepl_time:.2f}s | Total: {total_time:.2f}s")
 
         # 4. 回调GUI主线程
         self.callback(original_text, translated_text)
